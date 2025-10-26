@@ -26,10 +26,11 @@ var TEST_CONFIG = {
  * Enhanced logging utility functions with safety checks
  */
 function logStep(stepNum, stepName) {
-  // Debug logging to track parameters
+  // Debug logging to track parameters (remove this once issue is resolved)
   console.log("DEBUG: logStep called with parameters:");
   console.log("  stepNum:", stepNum, "(type:", typeof stepNum + ")");
   console.log("  stepName:", stepName, "(type:", typeof stepName + ")");
+  console.log("  Call stack location: " + (new Error().stack.split('\n')[1] || 'unknown'));
   
   // Safety checks for parameters
   if (stepNum === undefined || stepNum === null) {
@@ -72,6 +73,19 @@ function logDetail(key, value) {
   key = key || "Unknown";
   value = (value !== undefined && value !== null) ? value : "N/A";
   console.log("  •", key + ":", value);
+}
+
+/**
+ * Simple diagnostic function - run this first to check basic logging
+ */
+function simpleLoggingTest() {
+  console.log("=== SIMPLE LOGGING TEST START ===");
+  console.log("About to test logStep with valid parameters...");
+  
+  logStep(1, "Simple Test");
+  
+  console.log("=== SIMPLE LOGGING TEST END ===");
+  return "Test completed";
 }
 
 /**
