@@ -1,24 +1,25 @@
-# PMO Integration Enhancement Plan
+# PMO Integration Replacement Plan
 
-## 🎯 Enhancement Overview
+## 🎯 Complete System Replacement
 
-### Current Workflow
+### Current Workflow (TO BE REMOVED)
 ```
 Jira Ticket Selection → Create Local Folder Structure → Save Attachments
 Example: "Jira Attachments/CXPRODELIVERY/CXPRODELIVERY-6605/"
 ```
 
-### New Enhanced Workflow  
+### New Replacement Workflow (ONLY METHOD)
 ```
 Jira Ticket Selection → PMO Webhook Lookup → Use Existing PMO Folder → Save Attachments
 Example: Direct save to existing PMO-managed project folder
 ```
 
-### Benefits
-- **Centralized Folder Management**: Use existing PMO-managed project folders
-- **Reduced Folder Proliferation**: Eliminate duplicate folder structures
-- **Improved Organization**: Align with existing project management workflows
-- **Team Collaboration**: Shared access to PMO-maintained project spaces
+### Benefits of Complete Replacement
+- **Single Source of Truth**: PMO system is the only folder authority
+- **Eliminated Folder Duplication**: No more local folder creation
+- **Mandatory PMO Integration**: All projects use centralized PMO folders
+- **Simplified Architecture**: Remove complex folder creation logic
+- **Team Standardization**: Everyone uses the same PMO-managed folders
 
 ## 🔄 Technical Implementation Plan
 
@@ -87,55 +88,41 @@ function getFolderByIdSafely(folderId) {
 }
 ```
 
-#### 1.3 Enhanced Save Function
+#### 1.3 Replaced Save Function
 ```javascript
 function saveSelectedAttachmentsToGDrive(e) {
   // ... existing code for attachment processing ...
   
-  // NEW: PMO Integration Logic
-  var targetFolder = null;
-  var folderSource = 'local'; // Track folder source for user feedback
+  // PMO Integration Logic (ONLY METHOD)
+  console.log("Looking up PMO folder for:", finalTicket);
   
-  var settings = getUserSettings();
+  var pmoResult = getPMOProjectFolder(finalTicket);
   
-  if (settings.enablePMOIntegration) {
-    console.log("Attempting PMO folder lookup for:", finalTicket);
-    
-    var pmoResult = getPMOProjectFolder(finalTicket);
-    
-    if (pmoResult.success) {
-      var folderResult = getFolderByIdSafely(pmoResult.folderId);
-      
-      if (folderResult.success) {
-        targetFolder = folderResult.folder;
-        folderSource = 'pmo';
-        console.log("Using PMO folder:", folderResult.name);
-      } else {
-        console.log("PMO folder access failed:", folderResult.error);
-      }
-    } else {
-      console.log("PMO lookup failed:", pmoResult.error);
-    }
+  if (!pmoResult.success) {
+    // PMO lookup failed - this is an error condition
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("❌ Cannot find PMO project folder for " + finalTicket + ": " + pmoResult.error))
+      .build();
   }
   
-  // Fallback to local folder creation if PMO failed or disabled
-  if (!targetFolder) {
-    console.log("Falling back to local folder creation");
-    var baseFolder = getOrCreateFolder("Jira Attachments");
-    var projectFolder = getOrCreateFolder("CXPRODELIVERY", baseFolder);
-    targetFolder = getOrCreateFolder(finalTicket, projectFolder);
-    folderSource = 'local';
+  var folderResult = getFolderByIdSafely(pmoResult.folderId);
+  
+  if (!folderResult.success) {
+    // Folder access failed - this is an error condition  
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("❌ Cannot access PMO project folder: " + folderResult.error))
+      .build();
   }
   
-  // ... continue with existing attachment saving logic ...
+  var targetFolder = folderResult.folder;
+  console.log("Using PMO folder:", folderResult.name);
   
-  // Enhanced notification with folder source info
-  var notificationText = "✅ Saved " + savedCount + " attachments";
-  if (folderSource === 'pmo') {
-    notificationText += " to PMO project folder";
-  } else {
-    notificationText += " to CXPRODELIVERY/" + finalTicket;
-  }
+  // ... continue with existing attachment saving logic to targetFolder ...
+  
+  // Success notification
+  var notificationText = "✅ Saved " + savedCount + " attachments to PMO project folder: " + folderResult.name;
   
   if (skippedCount > 0) {
     notificationText += " (⚠️ " + skippedCount + " duplicates skipped)";
@@ -149,9 +136,9 @@ function saveSelectedAttachmentsToGDrive(e) {
 
 ### Phase 2: Settings Enhancement (Medium Priority)
 
-#### 2.1 Extended Settings Object
+#### 2.1 Simplified Settings Object
 ```javascript
-// Updated settings structure
+// Updated settings structure - PMO is now mandatory
 {
   // Existing Jira settings
   jiraUrl: "https://support.transporeon.com",
@@ -159,47 +146,44 @@ function saveSelectedAttachmentsToGDrive(e) {
   customJql: "project = CXPRODELIVERY AND...",
   savedAt: "2024-10-26T14:30:22.000Z",
   
-  // NEW: PMO Integration Settings
-  enablePMOIntegration: false,  // Disabled by default for backwards compatibility
+  // PMO Integration Settings (MANDATORY)
   pmoWebhookUrl: "https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299",
-  pmoTimeout: 5000,            // 5 second timeout
-  pmoFallbackToLocal: true,    // Always fallback to local folder creation
-  pmoRetryAttempts: 2          // Number of retry attempts for PMO webhook
+  pmoTimeout: 10000,           // 10 second timeout (more generous since it's critical)
+  pmoRetryAttempts: 3          // 3 retry attempts since no fallback available
 }
 ```
 
-#### 2.2 Settings UI Enhancement
+#### 2.2 Simplified Settings UI
 ```javascript
 function buildSettingsCard(isFirstTime) {
-  // ... existing settings sections ...
+  // ... existing Jira settings sections ...
   
-  // NEW: PMO Integration Section
+  // PMO Integration Section (MANDATORY)
   var pmoSection = CardService.newCardSection()
-    .setHeader("📁 PMO Folder Integration")
-    .setCollapsible(true)
-    .setNumUncollapsibleWidgets(2);
-  
-  // Enable/Disable PMO Integration
-  var enablePMOToggle = CardService.newSelectionInput()
-    .setType(CardService.SelectionInputType.CHECK_BOX)
-    .setFieldName("enablePMOIntegration")
-    .addItem("Enable PMO folder lookup", "true", settings.enablePMOIntegration || false);
-  pmoSection.addWidget(enablePMOToggle);
+    .setHeader("📁 PMO Project Folders (Required)");
   
   // PMO Webhook URL
   var pmoUrlInput = CardService.newTextInput()
     .setFieldName("pmoWebhookUrl")
     .setTitle("PMO Webhook URL")
-    .setHint("URL for PMO project folder lookup")
+    .setHint("URL for PMO project folder lookup (required)")
     .setValue(settings.pmoWebhookUrl || getDefaultPMOWebhookUrl());
   pmoSection.addWidget(pmoUrlInput);
   
+  // PMO Timeout Setting
+  var pmoTimeoutInput = CardService.newTextInput()
+    .setFieldName("pmoTimeout")
+    .setTitle("PMO Timeout (ms)")
+    .setHint("Timeout for PMO webhook calls (default: 10000)")
+    .setValue(String(settings.pmoTimeout || 10000));
+  pmoSection.addWidget(pmoTimeoutInput);
+  
   // PMO Help Text
   var pmoHelp = CardService.newTextParagraph()
-    .setText("💡 PMO Integration:\n" +
-             "• Uses existing PMO-managed project folders\n" +
-             "• Falls back to local folder creation if PMO lookup fails\n" +
-             "• Reduces folder duplication across teams");
+    .setText("📋 PMO Integration (Mandatory):\n" +
+             "• All attachments are saved to PMO-managed project folders\n" +
+             "• Folder lookup is performed via PMO webhook\n" +
+             "• Attachment save will fail if PMO folder cannot be found");
   pmoSection.addWidget(pmoHelp);
   
   // Test PMO Connection Button
@@ -224,10 +208,10 @@ function testPMOConnection(e) {
     var settings = getUserSettings();
     var webhookUrl = settings.pmoWebhookUrl || getDefaultPMOWebhookUrl();
     
-    if (!settings.enablePMOIntegration) {
+    if (!webhookUrl) {
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText("❌ PMO integration is disabled. Enable it first."))
+          .setText("❌ PMO webhook URL not configured. Please set URL first."))
         .build();
     }
     
@@ -238,12 +222,12 @@ function testPMOConnection(e) {
     if (result.success) {
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText("✅ PMO webhook connection successful!"))
+          .setText("✅ PMO webhook connection successful! Found folder ID: " + result.folderId))
         .build();
     } else {
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText("⚠️ PMO webhook accessible but no test folder found: " + result.error))
+          .setText("❌ PMO webhook test failed: " + result.error))
         .build();
     }
     
@@ -313,37 +297,60 @@ folderInfoSection.addWidget(folderInfo);
 #### Failure Scenarios & Responses:
 | Failure Type | User Impact | System Response |
 |--------------|-------------|-----------------|
-| PMO webhook down | Transparent fallback | Use local folder creation, notify user |
-| Ticket not in PMO | Transparent fallback | Create local folder, log for analysis |
-| Folder access denied | Transparent fallback | Create local folder, warn user |
-| Network timeout | Transparent fallback | Use cached folder or create local |
+| PMO webhook down | Save operation fails | Clear error message, ask user to retry later |
+| Ticket not in PMO | Save operation fails | Error: "Project folder not found in PMO system" |
+| Folder access denied | Save operation fails | Error: "Cannot access PMO project folder" |
+| Network timeout | Save operation fails | Error: "PMO lookup timeout, please try again" |
 
-#### Fallback Logic:
+#### Error Handling Logic:
 ```javascript
-if (pmoLookupFailed && settings.pmoFallbackToLocal) {
-  // Seamless fallback to existing folder creation logic
-  console.log("PMO lookup failed, falling back to local folder creation");
-  targetFolder = createLocalProjectFolder(finalTicket);
-  folderSource = 'local_fallback';
+var pmoResult = getPMOProjectFolder(finalTicket);
+
+if (!pmoResult.success) {
+  // PMO lookup failed - operation cannot continue
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification()
+      .setText("❌ Cannot save attachments: " + pmoResult.error))
+    .build();
+}
+
+// Continue only if PMO lookup succeeded
+var folderResult = getFolderByIdSafely(pmoResult.folderId);
+if (!folderResult.success) {
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification()
+      .setText("❌ Cannot access PMO folder: " + folderResult.error))
+    .build();
 }
 ```
 
-## 🔄 Migration Strategy
+## 🔄 System Replacement Strategy
 
-### Backwards Compatibility
-- **Default State**: PMO integration disabled for existing users
-- **Opt-in Adoption**: Users can enable PMO integration through settings
-- **Graceful Fallback**: Always maintain local folder creation as backup
-- **Settings Migration**: Automatically add PMO settings with safe defaults
+### Complete Migration Required
+- **Breaking Change**: Existing folder creation logic completely removed
+- **PMO Dependency**: System now requires PMO webhook for all operations
+- **Settings Update**: Users must configure PMO webhook URL
+- **No Backwards Compatibility**: Old folder creation method no longer available
 
-### User Communication
+### User Migration Steps
+1. **Configure PMO Settings**: Users must set PMO webhook URL
+2. **Test PMO Connection**: Verify webhook connectivity before use
+3. **Update Workflows**: All existing workflows now use PMO folders only
+4. **Cleanup**: Existing "Jira Attachments" folders can be manually archived
+
+### Migration Validation
 ```javascript
-// One-time notification for existing users about new PMO feature
-if (isNewPMOFeature(settings)) {
-  return CardService.newActionResponseBuilder()
-    .setNotification(CardService.newNotification()
-      .setText("🆕 New PMO Integration available! Check Settings to enable PMO project folder lookup."))
-    .build();
+function validatePMOSettings() {
+  var settings = getUserSettings();
+  
+  if (!settings.pmoWebhookUrl) {
+    return {
+      valid: false,
+      error: "PMO webhook URL is required for system operation"
+    };
+  }
+  
+  return { valid: true };
 }
 ```
 
@@ -355,23 +362,27 @@ if (isNewPMOFeature(settings)) {
 - ✅ Ticket exists in PMO system, folder accessible
 - ✅ Multiple users accessing same PMO folder
 - ✅ PMO folder with existing attachments (duplicate handling)
+- ✅ Large attachments saved to PMO folders
+- ✅ Various file types saved successfully
 
 #### 2. PMO Integration Failure Cases  
-- ❌ Ticket not found in PMO system → Fallback to local
-- ❌ PMO webhook unreachable → Fallback to local
-- ❌ Folder ID returned but folder inaccessible → Fallback to local
-- ❌ Network timeout → Fallback to local
+- ❌ Ticket not found in PMO system → Save operation fails with clear error
+- ❌ PMO webhook unreachable → Save operation fails with retry suggestion
+- ❌ Folder ID returned but folder inaccessible → Save fails with permission error
+- ❌ Network timeout → Save fails with timeout error
+- ❌ Invalid PMO response format → Save fails with format error
 
 #### 3. Settings & Configuration
-- ⚙️ Enable/disable PMO integration
-- ⚙️ Custom PMO webhook URL
-- ⚙️ PMO connection testing
-- ⚙️ Settings persistence and migration
+- ⚙️ PMO webhook URL configuration (required)
+- ⚙️ PMO timeout settings
+- ⚙️ PMO connection testing with real tickets
+- ⚙️ Settings validation and error handling
 
 #### 4. User Experience
 - 🎭 Loading states during PMO lookup
-- 🎭 Error messages and fallback notifications
-- 🎭 Success confirmations with folder information
+- 🎭 Clear error messages when PMO fails
+- 🎭 Success confirmations with PMO folder information
+- 🎭 Retry mechanisms for failed operations
 
 ### Testing Data Requirements
 ```javascript
@@ -399,16 +410,18 @@ var testTickets = {
 ## 🎯 Success Metrics
 
 ### Technical Success
-- ✅ PMO lookup success rate > 95%
-- ✅ Fallback mechanism works 100% of time on PMO failure
-- ✅ No breaking changes for existing users
-- ✅ Response time < 5 seconds for PMO lookup
+- ✅ PMO lookup success rate > 95% for valid tickets
+- ✅ Clear error handling for PMO failures (100% coverage)
+- ✅ Response time < 10 seconds for PMO lookup (increased tolerance)
+- ✅ Zero data loss on PMO failures (operation fails cleanly)
+- ✅ Reliable retry mechanism for transient failures
 
 ### User Experience Success  
-- ✅ Seamless folder access to PMO-managed projects
-- ✅ Reduced duplicate folder structures
-- ✅ Clear feedback on folder source (PMO vs local)
-- ✅ Easy PMO integration configuration
+- ✅ Direct access to PMO-managed project folders
+- ✅ Complete elimination of duplicate folder structures
+- ✅ Clear feedback when PMO operations succeed/fail
+- ✅ Intuitive PMO configuration and testing
+- ✅ Helpful error messages with next steps
 
 ## 🚀 Implementation Timeline
 
@@ -432,4 +445,4 @@ var testTickets = {
 - Final testing and validation
 - Deployment preparation
 
-This enhancement maintains full backwards compatibility while adding powerful PMO integration that aligns with existing project management workflows.
+This complete system replacement eliminates local folder creation in favor of mandatory PMO integration, ensuring all teams use centralized project folders managed by the PMO system.
