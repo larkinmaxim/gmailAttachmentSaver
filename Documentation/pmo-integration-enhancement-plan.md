@@ -10,8 +10,8 @@ Example: "Jira Attachments/CXPRODELIVERY/CXPRODELIVERY-6605/"
 
 ### New Replacement Workflow (ONLY METHOD)
 ```
-Jira Ticket Selection → PMO Webhook Lookup → Use Existing PMO Folder → Save Attachments
-Example: Direct save to existing PMO-managed project folder
+Jira Ticket Selection → PMO Webhook Lookup/Create → Use PMO Folder → Save Attachments
+Example: Direct save to PMO-managed project folder (created if not exists)
 ```
 
 ### Benefits of Complete Replacement
@@ -21,45 +21,104 @@ Example: Direct save to existing PMO-managed project folder
 - **Simplified Architecture**: Remove complex folder creation logic
 - **Team Standardization**: Everyone uses the same PMO-managed folders
 
+## 🔧 PMO Webhook Behavior
+
+The PMO webhook provides both **lookup** and **auto-creation** functionality:
+
+### Existing Folder Scenario
+```
+POST {"text": "CXPRODELIVERY-6605"} 
+→ Response: [{"folderid": "1oKM_fKM4LG99ZQpSFmEY_sWciuAq-cgp"}]
+→ Result: Immediate folder ID return
+```
+
+### Non-Existing Folder Scenario  
+```
+POST {"text": "CXPRODELIVERY-9999"} 
+→ PMO creates folder automatically
+→ First response: [{"folderid": undefined}] (rare timing issue)
+→ Retry same POST request
+→ Second response: [{"folderid": "1oKM_fKM4LG99ZQpSFmEY_sWciuAq-NEW"}]
+→ Result: Newly created folder ID
+```
+
+### Key Behaviors
+- **Automatic Creation**: PMO creates project folders if they don't exist
+- **Timing Issue**: First request may return `undefined` folderid during creation
+- **Retry Logic Required**: Second identical request returns valid folder ID
+- **No Manual Creation**: System never needs to create folders manually
+
 ## 🔄 Technical Implementation Plan
 
 ### Phase 1: Core PMO Integration (High Priority)
 
-#### 1.1 New PMO Webhook Function
+#### 1.1 PMO Webhook Function with Auto-Creation and Retry Logic
 ```javascript
 function getPMOProjectFolder(ticketKey) {
   try {
     var settings = getUserSettings();
     var webhookUrl = settings.pmoWebhookUrl || 'https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299';
+    var maxRetries = settings.pmoRetryAttempts || 2;
     
-    var response = UrlFetchApp.fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      payload: JSON.stringify({"text": ticketKey}),
-      muteHttpExceptions: true
-    });
+    console.log("PMO webhook lookup/create for ticket:", ticketKey);
     
-    if (response.getResponseCode() === 200) {
-      var data = JSON.parse(response.getContentText());
-      if (data && data.length > 0 && data[0].folderid) {
+    for (var attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log("PMO request attempt", attempt, "of", maxRetries);
+      
+      var response = UrlFetchApp.fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({"text": ticketKey}),
+        muteHttpExceptions: true
+      });
+      
+      if (response.getResponseCode() === 200) {
+        var data = JSON.parse(response.getContentText());
+        
+        if (data && data.length > 0) {
+          var folderid = data[0].folderid;
+          
+          if (folderid && folderid !== 'undefined') {
+            console.log("PMO webhook returned folder ID:", folderid);
+            return {
+              success: true,
+              folderId: folderid,
+              created: attempt > 1 // True if folder was created on this request
+            };
+          } else {
+            console.log("PMO webhook returned undefined folder ID on attempt", attempt);
+            
+            if (attempt === maxRetries) {
+              return {
+                success: false,
+                error: 'PMO webhook returned undefined folder ID after ' + maxRetries + ' attempts'
+              };
+            }
+            
+            // Wait briefly before retry (folder creation might need time)
+            Utilities.sleep(1000); // 1 second delay
+            continue;
+          }
+        } else {
+          return {
+            success: false,
+            error: 'PMO webhook returned invalid response format'
+          };
+        }
+      } else {
         return {
-          success: true,
-          folderId: data[0].folderid
+          success: false,
+          error: 'PMO webhook HTTP error: ' + response.getResponseCode() + ' - ' + response.getContentText()
         };
       }
     }
     
-    return {
-      success: false,
-      error: 'No folder found for ticket: ' + ticketKey
-    };
-    
   } catch (error) {
     return {
       success: false,
-      error: 'PMO webhook error: ' + error.message
+      error: 'PMO webhook network error: ' + error.message
     };
   }
 }
@@ -88,23 +147,25 @@ function getFolderByIdSafely(folderId) {
 }
 ```
 
-#### 1.3 Replaced Save Function
+#### 1.3 Replaced Save Function with Auto-Creation Support
 ```javascript
 function saveSelectedAttachmentsToGDrive(e) {
   // ... existing code for attachment processing ...
   
-  // PMO Integration Logic (ONLY METHOD)
-  console.log("Looking up PMO folder for:", finalTicket);
+  // PMO Integration Logic (ONLY METHOD) - Lookup/Create folder
+  console.log("PMO lookup/create for:", finalTicket);
   
   var pmoResult = getPMOProjectFolder(finalTicket);
   
   if (!pmoResult.success) {
-    // PMO lookup failed - this is an error condition
+    // PMO webhook failed - this is an error condition
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification()
-        .setText("❌ Cannot find PMO project folder for " + finalTicket + ": " + pmoResult.error))
+        .setText("❌ PMO folder lookup/creation failed for " + finalTicket + ": " + pmoResult.error))
       .build();
   }
+  
+  console.log("PMO returned folder ID:", pmoResult.folderId, "- Created:", pmoResult.created || false);
   
   var folderResult = getFolderByIdSafely(pmoResult.folderId);
   
@@ -112,7 +173,7 @@ function saveSelectedAttachmentsToGDrive(e) {
     // Folder access failed - this is an error condition  
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification()
-        .setText("❌ Cannot access PMO project folder: " + folderResult.error))
+        .setText("❌ Cannot access PMO project folder (ID: " + pmoResult.folderId + "): " + folderResult.error))
       .build();
   }
   
@@ -121,8 +182,12 @@ function saveSelectedAttachmentsToGDrive(e) {
   
   // ... continue with existing attachment saving logic to targetFolder ...
   
-  // Success notification
+  // Success notification with creation info
   var notificationText = "✅ Saved " + savedCount + " attachments to PMO project folder: " + folderResult.name;
+  
+  if (pmoResult.created) {
+    notificationText = "✅ Created PMO folder and saved " + savedCount + " attachments: " + folderResult.name;
+  }
   
   if (skippedCount > 0) {
     notificationText += " (⚠️ " + skippedCount + " duplicates skipped)";
@@ -149,7 +214,7 @@ function saveSelectedAttachmentsToGDrive(e) {
   // PMO Integration Settings (MANDATORY)
   pmoWebhookUrl: "https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299",
   pmoTimeout: 10000,           // 10 second timeout (more generous since it's critical)
-  pmoRetryAttempts: 3          // 3 retry attempts since no fallback available
+  pmoRetryAttempts: 2          // 2 attempts: handle undefined folderid during auto-creation
 }
 ```
 
@@ -181,9 +246,10 @@ function buildSettingsCard(isFirstTime) {
   // PMO Help Text
   var pmoHelp = CardService.newTextParagraph()
     .setText("📋 PMO Integration (Mandatory):\n" +
-             "• All attachments are saved to PMO-managed project folders\n" +
-             "• Folder lookup is performed via PMO webhook\n" +
-             "• Attachment save will fail if PMO folder cannot be found");
+             "• All attachments saved to PMO-managed project folders\n" +
+             "• PMO webhook automatically creates folders if they don't exist\n" +
+             "• Retry logic handles folder creation timing issues\n" +
+             "• Attachment save fails only if PMO webhook is unreachable");
   pmoSection.addWidget(pmoHelp);
   
   // Test PMO Connection Button
@@ -298,9 +364,10 @@ folderInfoSection.addWidget(folderInfo);
 | Failure Type | User Impact | System Response |
 |--------------|-------------|-----------------|
 | PMO webhook down | Save operation fails | Clear error message, ask user to retry later |
-| Ticket not in PMO | Save operation fails | Error: "Project folder not found in PMO system" |
+| Undefined folder ID | Save operation fails | Retry logic (2 attempts), then error if still undefined |
 | Folder access denied | Save operation fails | Error: "Cannot access PMO project folder" |
 | Network timeout | Save operation fails | Error: "PMO lookup timeout, please try again" |
+| Invalid response format | Save operation fails | Error: "PMO webhook returned invalid response" |
 
 #### Error Handling Logic:
 ```javascript
@@ -359,18 +426,21 @@ function validatePMOSettings() {
 ### Test Scenarios
 
 #### 1. PMO Integration Success Cases
-- ✅ Ticket exists in PMO system, folder accessible
+- ✅ Existing folder: Immediate folder ID return and successful save
+- ✅ New folder: Auto-creation with retry logic, successful save
 - ✅ Multiple users accessing same PMO folder
 - ✅ PMO folder with existing attachments (duplicate handling)
 - ✅ Large attachments saved to PMO folders
 - ✅ Various file types saved successfully
+- ✅ Undefined folderid → successful retry → valid folder ID
 
 #### 2. PMO Integration Failure Cases  
-- ❌ Ticket not found in PMO system → Save operation fails with clear error
 - ❌ PMO webhook unreachable → Save operation fails with retry suggestion
+- ❌ Undefined folderid after max retries → Save fails with creation error
 - ❌ Folder ID returned but folder inaccessible → Save fails with permission error
 - ❌ Network timeout → Save fails with timeout error
 - ❌ Invalid PMO response format → Save fails with format error
+- ❌ Webhook returns HTTP error codes → Save fails with HTTP error
 
 #### 3. Settings & Configuration
 - ⚙️ PMO webhook URL configuration (required)
@@ -388,9 +458,24 @@ function validatePMOSettings() {
 ```javascript
 // Test tickets needed
 var testTickets = {
-  withPMOFolder: "CXPRODELIVERY-6605",     // Has PMO folder
-  withoutPMOFolder: "CXPRODELIVERY-9999",  // No PMO folder
-  invalidTicket: "INVALID-123"              // Invalid format
+  existingFolder: "CXPRODELIVERY-6605",        // Has existing PMO folder
+  newFolder: "CXPRODELIVERY-9999",             // Will trigger PMO auto-creation
+  invalidTicket: "INVALID-123",                // Invalid format
+  longTicketName: "CXPRODELIVERY-VERY-LONG-NAME-TEST"  // Edge case naming
+};
+
+// Expected behaviors
+var expectedBehaviors = {
+  "CXPRODELIVERY-6605": {
+    behavior: "immediate_return",
+    folderid_defined: true,
+    retry_needed: false
+  },
+  "CXPRODELIVERY-9999": {
+    behavior: "auto_create", 
+    folderid_defined: false,  // First request
+    retry_needed: true        // Second request should succeed
+  }
 };
 ```
 
