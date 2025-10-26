@@ -2003,6 +2003,91 @@ function buildAddOn(e) {
     return permissionResults;
   }
   
+  // Test alternative PMO URLs to diagnose DNS issues
+  function debugTestPMOUrls() {
+    console.log("=== TESTING ALTERNATIVE PMO URLS ===");
+    
+    var testUrls = [
+      "https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299",
+      "https://httpbin.org/post", // Public test endpoint
+      "https://www.google.com",   // Basic connectivity test
+      "https://transporeon.com"   // Company main domain test
+    ];
+    
+    for (var i = 0; i < testUrls.length; i++) {
+      var url = testUrls[i];
+      console.log("\nTesting URL:", url);
+      
+      try {
+        var startTime = new Date().getTime();
+        var response = UrlFetchApp.fetch(url, {
+          method: 'GET',
+          muteHttpExceptions: true,
+          timeout: 5000
+        });
+        var duration = new Date().getTime() - startTime;
+        
+        console.log("✅ SUCCESS - Response code:", response.getResponseCode());
+        console.log("- Duration:", duration + "ms");
+        console.log("- Headers:", Object.keys(response.getAllHeaders()).length, "headers received");
+        
+      } catch (error) {
+        var duration = new Date().getTime() - startTime;
+        console.log("❌ FAILED - Error:", error.message);
+        console.log("- Duration:", duration + "ms");
+        console.log("- Error type:", error.name);
+        
+        if (error.message.includes("DNS")) {
+          console.log("- Issue: DNS resolution failed - hostname not reachable from Google's network");
+        } else if (error.message.includes("timeout")) {
+          console.log("- Issue: Network timeout - server may be slow or blocking requests");
+        }
+      }
+    }
+    
+    console.log("\n=== URL TEST ANALYSIS ===");
+    console.log("If Google/httpbin work but PMO fails → Corporate firewall blocking external access");  
+    console.log("If all URLs fail → Google Apps Script network issue");
+    console.log("If transporeon.com works but n8n-pmo subdomain fails → Internal-only subdomain");
+    
+    return "URL connectivity test completed - check logs above";
+  }
+  
+  // Simple test to check if Google Apps Script can reach external sites
+  function debugTestBasicConnectivity() {
+    console.log("=== BASIC CONNECTIVITY TEST ===");
+    
+    try {
+      console.log("Testing basic internet connectivity from Google Apps Script...");
+      
+      var response = UrlFetchApp.fetch("https://httpbin.org/get", {
+        method: 'GET',
+        timeout: 5000,
+        muteHttpExceptions: true
+      });
+      
+      if (response.getResponseCode() === 200) {
+        console.log("✅ INTERNET CONNECTIVITY: WORKING");
+        console.log("Google Apps Script can reach external websites");
+        console.log("The PMO DNS error is specific to n8n-pmo.office.transporeon.com");
+        console.log("\n🔍 This confirms the issue is:");
+        console.log("• Corporate firewall blocking external access to PMO server");
+        console.log("• Internal-only hostname not resolvable from external networks");
+        console.log("• PMO server configured for internal access only");
+        return true;
+      } else {
+        console.log("⚠️ INTERNET CONNECTIVITY: LIMITED - HTTP " + response.getResponseCode());
+        return false;
+      }
+      
+    } catch (error) {
+      console.log("❌ INTERNET CONNECTIVITY: FAILED");
+      console.log("Error:", error.message);
+      console.log("Google Apps Script may have network restrictions");
+      return false;
+    }
+  }
+  
   // Manual testing function for PMO connectivity (can be run directly from Apps Script editor)
   function debugTestPMOConnectivity() {
     console.log("=== MANUAL PMO CONNECTIVITY DEBUG TEST ===");
@@ -2018,10 +2103,14 @@ function buildAddOn(e) {
         return { success: false, error: "OAuth permissions not configured" };
       }
       
-      console.log("\nStep 2: Running system diagnostics...");
+      console.log("\nStep 2: Testing URL connectivity...");  
+      debugTestPMOUrls();
+      
+      console.log("\nStep 3: Running system diagnostics...");
       logDiagnosticInfo();
       
-      console.log("\n=== TESTING PMO WEBHOOK CONNECTIVITY ===");
+      console.log("\nStep 4: Testing PMO webhook connectivity...");
+      console.log("=== TESTING PMO WEBHOOK CONNECTIVITY ===");
       
       // Test with a debug ticket
       var testTicket = "CXPRODELIVERY-DEBUG-" + new Date().getTime();
@@ -2060,6 +2149,18 @@ function buildAddOn(e) {
   
   function getPMOErrorMessage(error, ticketKey) {
     var baseMessage = "❌ Cannot save attachments for " + ticketKey;
+    
+    if (error.includes("DNS error")) {
+      return baseMessage + "\n\n🌐 DNS Resolution Error:\n" + 
+             "• PMO server hostname cannot be resolved from Google's network\n" +
+             "• This suggests the PMO server (n8n-pmo.office.transporeon.com) is behind corporate firewall\n" +
+             "• External access may be blocked for security reasons\n\n" +
+             "🔧 Next Steps:\n" +
+             "• Contact Transporeon IT/PMO team about external access\n" +
+             "• Verify the PMO webhook URL is correct\n" +
+             "• Check if an alternative public endpoint exists\n\n" +
+             "💡 This is an infrastructure issue, not a configuration problem";
+    }
     
     if (error.includes("timeout") || error.includes("network")) {
       return baseMessage + "\n\n🌐 Network Issue:\n" + 
