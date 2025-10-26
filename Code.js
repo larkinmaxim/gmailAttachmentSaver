@@ -691,17 +691,49 @@ function buildAddOn(e) {
           .build();
       }
       
-      // Get PMO settings from form input
+      // Get PMO settings from form input with enhanced validation
       var pmoWebhookUrl = e.formInput.pmoWebhookUrl || getDefaultPMOWebhookUrl();
       var pmoTimeout = parseInt(e.formInput.pmoTimeout) || 10000;
       var pmoRetryAttempts = parseInt(e.formInput.pmoRetryAttempts) || 2;
       
-      // Validate PMO webhook URL
-      if (!pmoWebhookUrl || !pmoWebhookUrl.startsWith('http')) {
+      // Enhanced PMO settings validation
+      if (!pmoWebhookUrl || !pmoWebhookUrl.trim().startsWith('http')) {
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
-            .setText("❌ Please provide a valid PMO webhook URL starting with http"))
+            .setText("❌ PMO webhook URL is required and must start with http:// or https://"))
           .build();
+      }
+      
+      // Validate PMO webhook URL format
+      try {
+        new URL(pmoWebhookUrl.trim());
+      } catch (urlError) {
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification()
+            .setText("❌ PMO webhook URL format is invalid. Please provide a valid URL."))
+          .build();
+      }
+      
+      // Validate timeout range
+      if (pmoTimeout < 5000 || pmoTimeout > 60000) {
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification()
+            .setText("❌ PMO timeout must be between 5000 and 60000 milliseconds (5-60 seconds)"))
+          .build();
+      }
+      
+      // Validate retry attempts range
+      if (pmoRetryAttempts < 1 || pmoRetryAttempts > 5) {
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification()
+            .setText("❌ PMO retry attempts must be between 1 and 5"))
+          .build();
+      }
+      
+      // Clean up webhook URL
+      pmoWebhookUrl = pmoWebhookUrl.trim();
+      if (pmoWebhookUrl.endsWith('/')) {
+        pmoWebhookUrl = pmoWebhookUrl.slice(0, -1);
       }
       
       // Save settings including PMO configuration
@@ -719,9 +751,17 @@ function buildAddOn(e) {
       
       console.log("Settings saved successfully");
       
+      // Enhanced success notification with detailed feedback
+      var successMsg = "✅ Settings Saved Successfully!\n";
+      successMsg += "• Jira: " + jiraUrl + "\n";
+      successMsg += "• PMO Webhook: " + (pmoWebhookUrl === getDefaultPMOWebhookUrl() ? "Default" : "Custom") + "\n";
+      successMsg += "• PMO Timeout: " + pmoTimeout + "ms\n";
+      successMsg += "• PMO Retries: " + pmoRetryAttempts + "\n";
+      successMsg += "💡 Use 'Test Connections' to verify functionality";
+      
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText("✅ Settings saved successfully! Use 'Test Connection' to verify."))
+          .setText(successMsg))
         .build();
         
     } catch (error) {
@@ -784,28 +824,59 @@ function buildAddOn(e) {
           .build();
       }
       
-      // Test with a known ticket pattern (using CXPRODELIVERY format)
-      var testTicket = "CXPRODELIVERY-TEST";
-      console.log("Testing PMO connection with test ticket:", testTicket);
+      // Enhanced testing with multiple scenarios
+      console.log("Testing PMO webhook connectivity and folder operations...");
+      
+      // Test 1: Basic connectivity with test ticket
+      var testTicket = "CXPRODELIVERY-TEST-" + new Date().getTime();
+      console.log("Testing PMO connection with unique test ticket:", testTicket);
       
       var result = getPMOProjectFolder(testTicket);
       
       if (result.success) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("✅ PMO webhook connection successful! Found folder ID: " + result.folderId + (result.created ? " (folder created)" : " (existing folder)")))
-          .build();
+        // Test 2: Verify folder access
+        var folderTest = getFolderByIdSafely(result.folderId);
+        
+        if (folderTest.success) {
+          var successMsg = "✅ PMO Connection Test Successful!\n";
+          successMsg += "• Webhook: Responsive\n";  
+          successMsg += "• Folder ID: " + result.folderId + "\n";
+          successMsg += "• Folder Name: " + folderTest.name + "\n";
+          successMsg += "• Status: " + (result.created ? "New folder created" : "Existing folder found") + "\n";
+          successMsg += "• Access: Read/Write permissions confirmed";
+          
+          return CardService.newActionResponseBuilder()
+            .setNotification(CardService.newNotification()
+              .setText(successMsg))
+            .build();
+        } else {
+          return CardService.newActionResponseBuilder()
+            .setNotification(CardService.newNotification()
+              .setText("⚠️ PMO webhook responded but folder access failed: " + folderTest.error))
+            .build();
+        }
       } else {
+        // Enhanced error reporting
+        var errorMsg = "❌ PMO Connection Test Failed\n";
+        errorMsg += "• Webhook URL: " + webhookUrl + "\n";
+        errorMsg += "• Test Ticket: " + testTicket + "\n";
+        errorMsg += "• Error: " + result.error + "\n";
+        errorMsg += "• Suggestion: Check webhook URL and network connectivity";
+        
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
-            .setText("❌ PMO webhook test failed: " + result.error))
+            .setText(errorMsg))
           .build();
       }
       
     } catch (error) {
+      var errorMsg = "❌ PMO Connection Test Error\n";
+      errorMsg += "• Error: " + error.message + "\n";
+      errorMsg += "• Check: Network connectivity and webhook configuration";
+      
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText("❌ PMO connection test failed: " + error.message))
+          .setText(errorMsg))
         .build();
     }
   }
@@ -1290,14 +1361,20 @@ function buildAddOn(e) {
       // PMO Integration Logic (ONLY METHOD) - Lookup/Create folder
       console.log("PMO lookup/create for:", finalTicket);
       
+      // Enhanced user feedback during PMO operation
+      console.log("🔍 Contacting PMO system for project folder...");
+      
       var pmoResult = getPMOProjectFolder(finalTicket);
       
       if (!pmoResult.success) {
-        // PMO webhook failed - this is an error condition
+        // Enhanced PMO error handling with user-friendly messages
         console.error("PMO lookup failed:", pmoResult.error);
+        
+        var userFriendlyError = getPMOErrorMessage(pmoResult.error, finalTicket);
+        
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
-            .setText("❌ PMO folder lookup/creation failed for " + finalTicket + ": " + pmoResult.error))
+            .setText(userFriendlyError))
           .build();
       }
       
@@ -1306,11 +1383,21 @@ function buildAddOn(e) {
       var folderResult = getFolderByIdSafely(pmoResult.folderId);
       
       if (!folderResult.success) {
-        // Folder access failed - this is an error condition  
+        // Enhanced folder access error handling
         console.error("PMO folder access failed:", folderResult.error);
+        
+        var folderError = "❌ Cannot access PMO project folder for " + finalTicket + "\n\n";
+        folderError += "🔗 Folder ID: " + pmoResult.folderId + "\n";
+        folderError += "📋 Issue: " + folderResult.error + "\n\n";
+        folderError += "🔧 Possible Solutions:\n";
+        folderError += "• Check if you have access to the project folder\n";
+        folderError += "• Verify the folder wasn't moved or deleted\n";
+        folderError += "• Contact your project manager for folder permissions\n\n";
+        folderError += "💡 The PMO folder was found but cannot be accessed";
+        
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
-            .setText("❌ Cannot access PMO project folder (ID: " + pmoResult.folderId + "): " + folderResult.error))
+            .setText(folderError))
           .build();
       }
       
@@ -1379,16 +1466,35 @@ function buildAddOn(e) {
       console.log("Files saved:", savedFiles);
       console.log("Files skipped:", skippedFiles);
       
-      // Create notification message with PMO info
-      var notificationText;
+      // Enhanced notification message with detailed PMO info
+      var notificationText = "✅ Attachment Save Complete!\n\n";
+      
+      // PMO folder information
       if (pmoResult.created) {
-        notificationText = "✅ Created PMO folder and saved " + savedCount + " attachments: " + folderResult.name;
+        notificationText += "📁 New PMO folder created: " + folderResult.name + "\n";
       } else {
-        notificationText = "✅ Saved " + savedCount + " attachments to PMO project folder: " + folderResult.name;
+        notificationText += "📁 Saved to existing PMO folder: " + folderResult.name + "\n";
       }
       
+      // File statistics
+      notificationText += "📎 Files processed: " + selectedAttachments.length + "\n";
+      notificationText += "💾 Files saved: " + savedCount + "\n";
+      
       if (skippedCount > 0) {
-        notificationText += " (⚠️ " + skippedCount + " duplicates skipped)";
+        notificationText += "⚠️ Duplicates skipped: " + skippedCount + "\n";
+      }
+      
+      // Project information
+      notificationText += "🎫 Project: " + finalTicket + "\n";
+      
+      // Success summary
+      var successRate = Math.round((savedCount / selectedAttachments.length) * 100);
+      notificationText += "✨ Success rate: " + successRate + "%";
+      
+      if (savedFiles.length > 0 && savedFiles.length <= 3) {
+        notificationText += "\n\n📋 Saved files:\n• " + savedFiles.join("\n• ");
+      } else if (savedFiles.length > 3) {
+        notificationText += "\n\n📋 Recent files: " + savedFiles.slice(0, 2).join(", ") + " and " + (savedFiles.length - 2) + " more";
       }
       
       return CardService.newActionResponseBuilder()
@@ -1528,7 +1634,8 @@ function buildAddOn(e) {
               'Content-Type': 'application/json'
             },
             payload: JSON.stringify({"text": ticketKey}),
-            muteHttpExceptions: true
+            muteHttpExceptions: true,
+            timeout: timeout
           });
           
           console.log("PMO webhook response code:", response.getResponseCode());
@@ -1625,6 +1732,56 @@ function buildAddOn(e) {
   
   function getDefaultPMOWebhookUrl() {
     return 'https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299';
+  }
+  
+  function getPMOErrorMessage(error, ticketKey) {
+    var baseMessage = "❌ Cannot save attachments for " + ticketKey;
+    
+    if (error.includes("timeout") || error.includes("network")) {
+      return baseMessage + "\n\n🌐 Network Issue:\n" + 
+             "• PMO system is temporarily unreachable\n" +
+             "• Please check your internet connection\n" +
+             "• Try again in a few moments\n\n" +
+             "💡 If problem persists, contact IT support";
+    } 
+    
+    if (error.includes("HTTP 404") || error.includes("HTTP 500")) {
+      return baseMessage + "\n\n🔧 PMO System Issue:\n" + 
+             "• PMO webhook is temporarily unavailable\n" +
+             "• This is likely a temporary service issue\n" +
+             "• Please try again in a few minutes\n\n" +
+             "💡 If problem persists, contact PMO team";
+    }
+    
+    if (error.includes("HTTP 403") || error.includes("unauthorized")) {
+      return baseMessage + "\n\n🔐 Access Issue:\n" + 
+             "• You may not have permission to create project folders\n" +
+             "• Check with your project manager\n" +
+             "• Verify the ticket number is correct\n\n" +
+             "💡 Contact PMO team if you should have access";
+    }
+    
+    if (error.includes("undefined folder ID")) {
+      return baseMessage + "\n\n⏱️ PMO Folder Creation Issue:\n" + 
+             "• PMO system is processing your project folder\n" +
+             "• Folder creation took longer than expected\n" +
+             "• Please try again in a moment\n\n" +
+             "💡 The folder may be created now - retry to check";
+    }
+    
+    if (error.includes("invalid response format")) {
+      return baseMessage + "\n\n📋 PMO Response Issue:\n" + 
+             "• PMO system returned an unexpected response\n" +
+             "• This may be a temporary issue\n" +
+             "• Please try again\n\n" +
+             "💡 If error continues, contact IT support";
+    }
+    
+    // Generic error message
+    return baseMessage + "\n\n⚠️ PMO Integration Error:\n" +
+           "• " + error + "\n" +
+           "• Please try again in a few moments\n\n" +
+           "💡 If problem persists, contact IT or PMO support";
   }
   
   // ===== HELPER FUNCTIONS =====

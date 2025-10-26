@@ -6,10 +6,10 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 
 - **Gmail Integration**: Contextual Gmail add-on that appears when viewing emails with attachments
 - **Jira Integration**: Connects to Jira to fetch your active Technical Project Manager tickets
-- **Smart Organization**: Automatically creates folder structure: `Jira Attachments/CXPRODELIVERY/{Ticket-Number}`
+- **PMO Integration**: Automatically connects to centralized PMO-managed project folders (replaces local folder creation)
 - **Attachment Selection**: Select specific attachments to save, with memory across sessions
 - **Duplicate Handling**: Intelligently handles duplicate files by checking size and adding timestamps when needed
-- **Settings Management**: Secure storage of Jira credentials and custom JQL queries
+- **Settings Management**: Secure storage of Jira credentials, PMO webhook configuration, and custom JQL queries
 
 ## Setup
 
@@ -26,13 +26,17 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
    - Copy the code from `Code.js` into your script
    - Copy the configuration from `appsscript.json`
 
-2. **Configure Jira Settings**:
+2. **Configure Integration Settings**:
    - Open the add-on in Gmail
    - Go to Settings (⚙️)
-   - Enter your Jira URL (e.g., `https://your-company.atlassian.net`)
-   - Enter your [Jira API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
-   - Customize JQL query if needed (default focuses on TPM tickets)
-   - Test the connection
+   - **Jira Configuration**:
+     - Enter your Jira URL (e.g., `https://your-company.atlassian.net`)
+     - Enter your [Jira API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
+     - Customize JQL query if needed (default focuses on TPM tickets)
+   - **PMO Configuration**:
+     - PMO webhook URL (pre-configured with default)
+     - Timeout and retry settings
+   - Test both connections
 
 ### Required OAuth Scopes
 
@@ -49,20 +53,25 @@ The add-on requires the following permissions:
 2. **Click the add-on** in the sidebar
 3. **Select your Jira ticket** from the dropdown or enter manually
 4. **Choose attachments** to save (checkboxes grouped by file type)
-5. **Click "Save to CXPRODELIVERY"** to save selected attachments
+5. **Click "Save to PMO Folder"** to save selected attachments
 
-### Folder Structure
+### PMO Folder Integration
 
-Attachments are saved to:
+Attachments are automatically saved to PMO-managed project folders:
 ```
-Google Drive/
-└── Jira Attachments/
-    └── CXPRODELIVERY/
-        └── CXPRODELIVERY-{ticket-number}/
-            ├── document1.pdf
-            ├── image1.png
-            └── ...
+PMO System/
+└── [PMO-Created Project Folders]/
+    └── CXPRODELIVERY-{ticket-number}/     (Auto-created by PMO)
+        ├── document1.pdf
+        ├── image1.png
+        └── ...
 ```
+
+**Benefits:**
+- **Centralized Management**: All project files in PMO-standardized locations
+- **Automatic Creation**: PMO system creates folders as needed
+- **Team Access**: Shared access across project team members
+- **Enterprise Compliance**: Meets organizational data governance requirements
 
 ## Features in Detail
 
@@ -83,6 +92,14 @@ Google Drive/
 - **TPM Focus**: Default query targets Technical Project Manager assignments
 - **Connection Testing**: Verify Jira connectivity and credentials
 - **Secure Storage**: API tokens stored securely in user properties
+
+### PMO Integration
+- **Centralized Folders**: Automatic connection to PMO-managed project folders
+- **Webhook Integration**: Real-time folder lookup and creation via PMO webhook
+- **Auto-Creation**: PMO system creates project folders automatically when needed
+- **Retry Logic**: Intelligent retry handling for folder creation timing issues
+- **Enhanced Error Handling**: User-friendly error messages for PMO system issues
+- **Connection Testing**: Comprehensive PMO webhook connectivity testing
 
 ## Default JQL Query
 

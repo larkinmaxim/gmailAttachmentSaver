@@ -10,10 +10,11 @@ This directory contains detailed process flow documentation for each major featu
 |---------|----------|-------------|
 | **Gmail Integration** | [gmail-integration-process.md](gmail-integration-process.md) | Contextual Gmail add-on integration, thread processing, and UI card construction |
 | **Jira Integration** | [jira-integration-process.md](jira-integration-process.md) | Jira API connectivity, ticket retrieval, TPM workflows, and dynamic ticket details |
-| **Smart Organization** | [smart-organization-process.md](smart-organization-process.md) | Automatic folder structure creation, hierarchical organization, and path generation |
+| **PMO Integration** | [pmo-integration-process.md](pmo-integration-process.md) | **NEW!** PMO webhook integration, centralized folder management, auto-creation, and enterprise compliance |
+| **PMO Smart Organization** | [smart-organization-process.md](smart-organization-process.md) | **Updated!** PMO-driven folder system replacing local creation with centralized management |
 | **Attachment Selection** | [attachment-selection-process.md](attachment-selection-process.md) | File type grouping, selection memory, UI generation, and state management |
 | **Duplicate Handling** | [duplicate-handling-process.md](duplicate-handling-process.md) | Size-based duplicate detection, timestamped versioning, and conflict resolution |
-| **Settings Management** | [settings-management-process.md](settings-management-process.md) | Secure credential storage, JQL configuration, validation, and connection testing |
+| **Settings Management** | [settings-management-process.md](settings-management-process.md) | **Updated!** Secure credential storage including PMO webhook configuration and validation |
 
 ## 🔄 Process Flow Overview
 
@@ -21,21 +22,21 @@ The Gmail Attachment Saver follows this high-level process flow:
 
 ```
 1. Gmail Context Detection → 2. Settings Validation → 3. Jira Integration → 
-4. Attachment Discovery → 5. User Selection → 6. Smart Organization → 
+4. Attachment Discovery → 5. User Selection → 6. PMO Integration → 
 7. Duplicate Handling → 8. File Saving → 9. User Notification
 ```
 
 ### Detailed Flow Sequence
 
 1. **📧 Gmail Integration**: User opens email → Add-on detects context → Loads attachments
-2. **⚙️ Settings Validation**: Check Jira credentials → Validate connection → Load preferences  
+2. **⚙️ Settings Validation**: Check Jira & PMO credentials → Validate connections → Load preferences  
 3. **🎫 Jira Integration**: Fetch TPM tickets → Display dropdown → Handle ticket selection
 4. **📎 Attachment Discovery**: Process email thread → Group by file type → Create selection UI
 5. **☑️ User Selection**: User chooses attachments → Remember selections → Validate choices
-6. **📁 Smart Organization**: Generate folder structure → Create hierarchy → Prepare target location
-7. **🔍 Duplicate Handling**: Check existing files → Compare sizes → Handle conflicts intelligently
-8. **💾 File Saving**: Save selected attachments → Apply versioning → Track results
-9. **📢 User Notification**: Report success/failures → Show save statistics → Provide feedback
+6. **🏢 PMO Integration**: Call PMO webhook → Lookup/create project folder → Get folder access
+7. **🔍 Duplicate Handling**: Check existing files in PMO folder → Compare sizes → Handle conflicts intelligently
+8. **💾 File Saving**: Save selected attachments to PMO folder → Apply versioning → Track results
+9. **📢 User Notification**: Report PMO folder status → Show save statistics → Provide detailed feedback
 
 ## 🎯 Key Integration Points
 
@@ -44,10 +45,17 @@ The Gmail Attachment Saver follows this high-level process flow:
 - Contextual ticket selection based on email content
 - Persistent selection memory across Gmail navigation
 
-### Jira ↔ Organization
-- Ticket keys drive folder naming conventions
-- Project hierarchy reflects Jira project structure
+### Jira ↔ PMO Integration
+- Ticket keys trigger PMO folder lookup/creation
+- PMO system manages standardized project folders
+- Enterprise compliance through centralized folder management
 - TPM role filtering ensures relevant ticket access
+
+### PMO ↔ File Organization
+- PMO webhook provides direct folder access
+- Automatic folder creation when projects are new
+- Centralized permission management through PMO system
+- No local folder creation - PMO is single source of truth
 
 ### Selection ↔ Duplicate Handling
 - Selection memory informs duplicate decisions

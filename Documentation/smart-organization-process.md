@@ -1,57 +1,56 @@
-# Smart Organization Process Flow
+# PMO Smart Organization Process Flow
 
 ## Overview
-The Smart Organization feature automatically creates a structured folder hierarchy in Google Drive to organize saved attachments by project and ticket number.
+The PMO Smart Organization feature automatically connects to centralized PMO-managed project folders, eliminating local folder creation and ensuring all attachments are stored in standardized PMO folder structures.
 
 ## Process Flow
 
-### 1. Folder Structure Planning
+### 1. PMO Folder Resolution
 ```
-Ticket Selection → Generate Path → Check Existing Structure → Create Missing Folders
+Ticket Selection → PMO Webhook Lookup → Retrieve Existing PMO Folder → Direct Access
 ```
 
-**Target Structure:**
+**PMO Integration Structure:**
 ```
-Google Drive Root/
-└── Jira Attachments/                    (Base container)
-    └── CXPRODELIVERY/                   (Project folder)
-        └── CXPRODELIVERY-{number}/      (Ticket-specific folder)
-            ├── document1.pdf
-            ├── spreadsheet1.xlsx
-            └── image1.png
+PMO System/
+└── [PMO-Managed Project Folders]
+    └── CXPRODELIVERY-{number}/          (PMO-created project folder)
+        ├── document1.pdf
+        ├── spreadsheet1.xlsx
+        └── image1.png
 ```
 
 **Technical Implementation:**
 ```javascript
-var baseFolder = getOrCreateFolder("Jira Attachments");
-var projectFolder = getOrCreateFolder("CXPRODELIVERY", baseFolder);
-var ticketFolder = getOrCreateFolder(finalTicket, projectFolder);
+var pmoResult = getPMOProjectFolder(finalTicket);    // PMO webhook call
+var folderResult = getFolderByIdSafely(pmoResult.folderId);  // Direct folder access
+var targetFolder = folderResult.folder;              // Use PMO folder
 ```
 
-### 2. Hierarchical Folder Creation
+### 2. PMO Webhook Integration
 ```
-Root Check → Base Folder → Project Folder → Ticket Folder → Ready for Files
+Ticket Input → PMO API Call → Folder Lookup/Creation → Folder ID Response → Direct Access
 ```
 
-**Step-by-Step Process:**
+**PMO Integration Process:**
 
-#### 2.1 Base Folder Creation
-- **Location:** Google Drive root directory
-- **Name:** "Jira Attachments"
-- **Logic:** Central container for all Jira-related attachments
-- **Reuse:** Created once, reused across all tickets
+#### 2.1 PMO Webhook Call
+- **Endpoint:** Configurable PMO webhook URL
+- **Method:** POST request with ticket key
+- **Payload:** `{"text": "CXPRODELIVERY-6310"}`
+- **Function:** Automatic folder lookup and creation
 
-#### 2.2 Project Folder Creation
-- **Location:** Inside "Jira Attachments"
-- **Name:** "CXPRODELIVERY" (hardcoded project key)
-- **Logic:** Organizes by Jira project
-- **Extensible:** Could support multiple projects in future
+#### 2.2 PMO Response Handling
+- **Existing Folder:** Immediate folder ID response
+- **New Folder:** Auto-creation with potential retry for undefined responses
+- **Validation:** Folder ID validation and access verification
+- **Caching:** Folder reference stored for session duration
 
-#### 2.3 Ticket Folder Creation  
-- **Location:** Inside project folder
-- **Name:** Full ticket key (e.g., "CXPRODELIVERY-6310")
-- **Logic:** One folder per ticket for isolation
-- **Format:** Always includes project prefix
+#### 2.3 Direct Folder Access
+- **Method:** Google Drive API access using folder ID
+- **Verification:** Folder name and permissions validation
+- **Integration:** Seamless integration with attachment saving process
+- **Error Handling:** Comprehensive error reporting for access issues
 
 ### 3. Dynamic Ticket Resolution
 ```
@@ -75,29 +74,37 @@ if (selectedTicket && selectedTicket !== "manual") {
 }
 ```
 
-### 4. Folder Existence Checking
+### 4. PMO Folder Validation and Access
 ```
-Target Path → Check Existence → Create If Missing → Return Folder Reference
+PMO Response → Folder ID Validation → Google Drive Access → Folder Verification → Ready for Use
 ```
 
 **Technical Implementation:**
 ```javascript
-function getOrCreateFolder(folderName, parentFolder) {
-  var parent = parentFolder || DriveApp.getRootFolder();
-  var folders = parent.getFoldersByName(folderName);
-  
-  if (folders.hasNext()) {
-    return folders.next(); // Folder exists, reuse it
-  } else {
-    return parent.createFolder(folderName); // Create new folder
+function getFolderByIdSafely(folderId) {
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var folderName = folder.getName(); // Test access
+    
+    return {
+      success: true,
+      folder: folder,
+      name: folderName
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: 'Cannot access folder: ' + error.message
+    };
   }
 }
 ```
 
-**Optimization Features:**
-- **Existence Check:** Avoids duplicate folder creation
-- **Parent Context:** Maintains hierarchical relationships
-- **Error Handling:** Graceful failure for permission issues
+**Validation Features:**
+- **ID Verification:** Validates folder ID format and accessibility
+- **Access Testing:** Verifies read/write permissions
+- **Error Handling:** Detailed error reporting for access issues
+- **Name Retrieval:** Provides folder name for user feedback
 
 ### 5. Path Generation Logic
 ```
@@ -120,89 +127,115 @@ var basePath = "Jira Attachments/CXPRODELIVERY/" + finalTicket + "/";
 - Handle spaces and special characters
 - Ensure cross-platform compatibility
 
-## Organization Benefits
+## PMO Organization Benefits
 
-### 1. Consistent Structure
-- **Predictable Paths:** Users always know where files are saved
-- **Bulk Operations:** Easy to find all files for a ticket
-- **Integration Ready:** Structured for automation tools
+### 1. Centralized Management
+- **Single Source of Truth:** PMO system manages all project folders
+- **Standardized Structure:** Consistent folder organization across all projects  
+- **Automatic Creation:** Folders created automatically when needed
+- **Permission Control:** PMO system handles access rights and permissions
 
-### 2. Scalability
-- **Multiple Tickets:** Each ticket gets isolated folder
-- **Team Collaboration:** Shared folder structure across team
-- **Archive Ready:** Easy to backup entire project folders
+### 2. Team Collaboration
+- **Shared Access:** All team members access same PMO-managed folders
+- **Real-time Sync:** Changes visible to all project stakeholders
+- **Cross-platform Access:** Available through Google Drive, web, and mobile
+- **Version Control:** Google Drive versioning built into PMO folders
 
-### 3. Search Optimization
-- **Google Drive Search:** Folder names are searchable
-- **Hierarchical Browsing:** Navigate by project → ticket
-- **File Discovery:** Related attachments grouped together
+### 3. Enterprise Integration
+- **PMO Workflow:** Seamlessly integrates with existing PMO processes
+- **Audit Trail:** Complete tracking of folder creation and access
+- **Compliance Ready:** Meets organizational data governance requirements
+- **Backup Included:** PMO folders included in organizational backup systems
 
-## Error Handling
+## PMO Error Handling
 
-### Permission Issues
+### PMO Webhook Failures
 ```javascript
-try {
-  var folder = parent.createFolder(folderName);
-  return folder;
-} catch (error) {
-  console.error("Folder creation failed:", error);
-  throw new Error("Cannot create folder: " + folderName);
+if (!pmoResult.success) {
+  var userFriendlyError = getPMOErrorMessage(pmoResult.error, finalTicket);
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification()
+      .setText(userFriendlyError))
+    .build();
 }
 ```
 
-**Recovery Strategies:**
-- **Drive Permissions:** Ensure user has write access
-- **Quota Limits:** Handle Drive storage limit errors  
-- **Naming Conflicts:** Handle duplicate name scenarios
+**PMO Error Categories:**
+- **Network Issues:** Timeout, connectivity problems
+- **System Errors:** PMO webhook unavailable (404, 500)
+- **Access Errors:** Permission denied (403, unauthorized)
+- **Timing Issues:** Undefined folder ID during auto-creation
 
-### Invalid Ticket Names
-- **Character Filtering:** Remove filesystem-unsafe characters
-- **Length Limits:** Truncate extremely long ticket names
-- **Default Fallback:** Use timestamp-based folder if ticket invalid
-
-### Nested Folder Limits
-- **Depth Monitoring:** Track folder nesting levels
-- **Alternative Structures:** Flatten if too deep
-- **Performance:** Optimize for Drive API limits
-
-## Performance Considerations
-
-### Folder Caching
+### Folder Access Validation
 ```javascript
-// Cache folder references during session
-var folderCache = {};
-function getCachedFolder(path) {
-  if (!folderCache[path]) {
-    folderCache[path] = getOrCreateFolder(path);
+if (!folderResult.success) {
+  var folderError = "❌ Cannot access PMO project folder for " + finalTicket;
+  folderError += "\n🔗 Folder ID: " + pmoResult.folderId;
+  folderError += "\n📋 Issue: " + folderResult.error;
+  folderError += "\n💡 Contact project manager for folder permissions";
+  return errorNotification(folderError);
+}
+```
+
+**Folder Access Issues:**
+- **Permission Denied:** User lacks access to PMO folder
+- **Folder Deleted:** PMO folder removed or moved
+- **Drive Limits:** Google Drive quota or API limits exceeded
+
+### PMO System Recovery
+- **Retry Logic:** Automatic retry for undefined folder responses
+- **Timeout Handling:** Configurable timeout with fallback messaging
+- **Error Classification:** User-friendly messages for different error types
+- **No Local Fallback:** PMO integration is mandatory - no local folder creation
+
+## PMO Performance Considerations
+
+### PMO Webhook Optimization
+```javascript
+// Configurable timeout and retry settings
+var settings = {
+  pmoTimeout: 10000,        // 10 second timeout
+  pmoRetryAttempts: 2       // 2 retry attempts for undefined responses
+};
+
+// Efficient retry logic with delay
+for (var attempt = 1; attempt <= maxRetries; attempt++) {
+  var result = callPMOWebhook(ticketKey);
+  if (result.success && result.folderId !== 'undefined') {
+    return result;
   }
-  return folderCache[path];
+  Utilities.sleep(1000); // 1 second delay between retries
 }
 ```
 
-### Batch Operations
-- **Multiple Files:** Reuse folder references
-- **Single API Calls:** Create folder hierarchy in one pass
-- **Connection Reuse:** Minimize Drive API calls
+### Folder Reference Caching
+- **Session Caching:** PMO folder references cached during session
+- **Access Validation:** Cached folders validated before use
+- **Memory Management:** Cache cleared between email contexts
 
-### Monitoring & Analytics
-- **Folder Usage:** Track most-used ticket folders
-- **Growth Patterns:** Monitor folder structure growth
-- **Cleanup Opportunities:** Identify empty or old folders
+### PMO Integration Monitoring
+- **Response Times:** Track PMO webhook performance
+- **Success Rates:** Monitor PMO folder creation success
+- **Error Patterns:** Analyze common PMO integration issues
 
-## Future Enhancements
+## PMO Future Enhancements
 
-### Multi-Project Support
+### Multi-Project PMO Support
 ```javascript
-// Extensible project folder structure
-var projectFolder = getOrCreateFolder(extractProject(ticketKey), baseFolder);
+// Enhanced project detection and PMO routing
+var projectType = detectProjectType(ticketKey); // CXPRODELIVERY, ANOTHER, etc.
+var pmoEndpoint = getPMOEndpointForProject(projectType);
+var result = getPMOProjectFolder(ticketKey, pmoEndpoint);
 ```
 
-### Custom Naming Conventions
-- **Date-based Folders:** Option for date-organized structure
-- **Client-based Grouping:** Organize by client within ticket
-- **Custom Templates:** User-defined folder naming patterns
+### Advanced PMO Features
+- **Bulk Operations:** PMO batch folder creation for multiple tickets
+- **Folder Templates:** PMO-managed folder structure templates
+- **Permission Inheritance:** Automatic permission assignment from PMO system
+- **Folder Analytics:** Usage reporting and optimization suggestions
 
-### Integration Extensions
-- **Jira Links:** Create Drive folders linked to Jira tickets
-- **Notification System:** Alert on folder creation/updates
-- **Cleanup Automation:** Automated archival of completed tickets
+### PMO Integration Extensions
+- **Real-time Notifications:** PMO folder creation/update alerts
+- **Audit Integration:** Enhanced audit trail with PMO system logging
+- **Mobile Optimization:** Improved PMO integration for mobile Gmail access
+- **Offline Capability:** Queue PMO requests for later processing when offline
