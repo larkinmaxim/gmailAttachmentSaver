@@ -26,11 +26,22 @@ var TEST_CONFIG = {
  * Enhanced logging utility functions with safety checks
  */
 function logStep(stepNum, stepName) {
-  // Debug logging to track parameters (remove this once issue is resolved)
+  // Enhanced debug logging to identify caller function
   console.log("DEBUG: logStep called with parameters:");
   console.log("  stepNum:", stepNum, "(type:", typeof stepNum + ")");
   console.log("  stepName:", stepName, "(type:", typeof stepName + ")");
-  console.log("  Call stack location: " + (new Error().stack.split('\n')[1] || 'unknown'));
+  
+  // Get full stack trace to identify calling function
+  try {
+    var stack = new Error().stack;
+    console.log("  Full call stack:");
+    var stackLines = stack.split('\n');
+    for (var i = 0; i < Math.min(stackLines.length, 5); i++) {
+      console.log("    " + i + ": " + stackLines[i]);
+    }
+  } catch (e) {
+    console.log("  Could not get stack trace:", e.message);
+  }
   
   // Safety checks for parameters
   if (stepNum === undefined || stepNum === null) {
@@ -86,6 +97,29 @@ function simpleLoggingTest() {
   
   console.log("=== SIMPLE LOGGING TEST END ===");
   return "Test completed";
+}
+
+/**
+ * Function execution tracer - tells us which function is actually running
+ */
+function whoAmIRunning() {
+  console.log("=== FUNCTION EXECUTION TRACER ===");
+  console.log("This function (whoAmIRunning) is definitely executing");
+  console.log("Timestamp:", new Date().toISOString());
+  
+  // Try to get current function name
+  try {
+    var stack = new Error().stack;
+    console.log("Current execution stack:");
+    var stackLines = stack.split('\n');
+    for (var i = 0; i < Math.min(stackLines.length, 3); i++) {
+      console.log("  " + i + ": " + stackLines[i]);
+    }
+  } catch (e) {
+    console.log("Could not get execution stack");
+  }
+  
+  return "Function identification complete";
 }
 
 /**
