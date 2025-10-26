@@ -9,11 +9,25 @@ function buildAddOn(e) {
         .setHeader("Jira TPM Attachment Saver");
       
       // Check if settings are configured
+      console.log("Checking user settings configuration...");
       var settings = getUserSettings();
+      
+      console.log("Settings validation results:");
+      console.log("- Jira Token present:", !!settings.jiraToken);
+      console.log("- Jira URL present:", !!settings.jiraUrl);  
+      console.log("- PMO Webhook URL present:", !!settings.pmoWebhookUrl);
+      
       if (!settings.jiraToken || !settings.jiraUrl || !settings.pmoWebhookUrl) {
-        console.log("Settings not configured (missing Jira or PMO settings), showing setup");
+        console.log("SETTINGS INCOMPLETE - showing setup screen");
+        console.log("Missing:");
+        if (!settings.jiraToken) console.log("- Jira Token");
+        if (!settings.jiraUrl) console.log("- Jira URL");
+        if (!settings.pmoWebhookUrl) console.log("- PMO Webhook URL");
+        
         return [buildSettingsCard(true)]; // true = first time setup
       }
+      
+      console.log("Settings validation PASSED - proceeding with main interface");
       
       // Get user's TPM projects and active tickets
       try {
@@ -1254,8 +1268,13 @@ function buildAddOn(e) {
   function saveSelectedAttachmentsToGDrive(e) {
     try {
       console.log("=== SAVE FUNCTION CALLED ===");
+      console.log("Save operation timestamp:", new Date().toISOString());
       console.log("Form input:", JSON.stringify(e.formInput));
       console.log("Parameters:", JSON.stringify(e.parameters));
+      
+      // Add comprehensive diagnostic information for troubleshooting
+      console.log("\n=== DIAGNOSTIC INFO FOR TROUBLESHOOTING ===");
+      logDiagnosticInfo();
       
       var selectedTicket = e.formInput.selectedTicket;
       var manualTicketNumber = e.formInput.manualTicketNumber;
@@ -1359,12 +1378,17 @@ function buildAddOn(e) {
       }
       
       // PMO Integration Logic (ONLY METHOD) - Lookup/Create folder
-      console.log("PMO lookup/create for:", finalTicket);
+      console.log("=== STARTING PMO INTEGRATION ===");
+      console.log("Final ticket for PMO lookup:", finalTicket);
+      console.log("Selected attachments count:", selectedAttachments.length);
+      console.log("PMO integration timestamp:", new Date().toISOString());
       
       // Enhanced user feedback during PMO operation
       console.log("🔍 Contacting PMO system for project folder...");
       
       var pmoResult = getPMOProjectFolder(finalTicket);
+      
+      console.log("PMO lookup completed. Result:", JSON.stringify(pmoResult));
       
       if (!pmoResult.success) {
         // Enhanced PMO error handling with user-friendly messages
@@ -1517,35 +1541,57 @@ function buildAddOn(e) {
   // ===== SETTINGS STORAGE FUNCTIONS =====
   
   function getUserSettings() {
+    console.log("=== LOADING USER SETTINGS ===");
+    console.log("Timestamp:", new Date().toISOString());
+    
     try {
       var userProperties = PropertiesService.getUserProperties();
       var settingsJson = userProperties.getProperty('JIRA_SETTINGS');
       
+      console.log("Settings JSON from storage:", settingsJson ? "found" : "not found");
+      
       if (settingsJson) {
+        console.log("Raw settings JSON length:", settingsJson.length);
         var settings = JSON.parse(settingsJson);
+        console.log("Parsed settings keys:", Object.keys(settings));
         
         // Add PMO defaults for existing users who don't have PMO settings
         if (!settings.pmoWebhookUrl) {
+          console.log("Adding default PMO webhook URL for existing user");
           settings.pmoWebhookUrl = getDefaultPMOWebhookUrl();
         }
         if (!settings.pmoTimeout) {
+          console.log("Adding default PMO timeout for existing user");
           settings.pmoTimeout = 10000;
         }
         if (!settings.pmoRetryAttempts) {
+          console.log("Adding default PMO retry attempts for existing user");
           settings.pmoRetryAttempts = 2;
         }
         
+        console.log("Final settings configuration:");
+        console.log("- Jira URL:", settings.jiraUrl ? "configured" : "NOT SET");
+        console.log("- Jira Token:", settings.jiraToken ? "configured (length: " + settings.jiraToken.length + ")" : "NOT SET");
+        console.log("- JQL Query:", settings.jqlQuery ? "configured" : "NOT SET");
+        console.log("- PMO Webhook URL:", settings.pmoWebhookUrl ? "configured" : "NOT SET");
+        console.log("- PMO Timeout:", settings.pmoTimeout);
+        console.log("- PMO Retry Attempts:", settings.pmoRetryAttempts);
+        console.log("- Using default PMO URL:", settings.pmoWebhookUrl === getDefaultPMOWebhookUrl());
+        
         return settings;
       } else {
-        // Return defaults for new users
-        return {
+        console.log("No existing settings found - returning defaults for new user");
+        var defaultSettings = {
           pmoWebhookUrl: getDefaultPMOWebhookUrl(),
           pmoTimeout: 10000,
           pmoRetryAttempts: 2
         };
+        console.log("Default settings:", JSON.stringify(defaultSettings));
+        return defaultSettings;
       }
     } catch (error) {
-      console.error("Error getting user settings:", error);
+      console.error("CRITICAL: Error getting user settings:", error.name, "-", error.message);
+      console.error("Settings error stack:", error.stack);
       return {
         pmoWebhookUrl: getDefaultPMOWebhookUrl(),
         pmoTimeout: 10000,
@@ -1621,24 +1667,50 @@ function buildAddOn(e) {
       var maxRetries = settings.pmoRetryAttempts || 2;
       var timeout = settings.pmoTimeout || 10000;
       
-      console.log("PMO webhook lookup/create for ticket:", ticketKey);
-      console.log("Using webhook URL:", webhookUrl);
+      console.log("=== PMO WEBHOOK LOOKUP/CREATE ===");
+      console.log("Timestamp:", new Date().toISOString());
+      console.log("Ticket key:", ticketKey);
+      console.log("PMO Configuration:");
+      console.log("- Webhook URL:", webhookUrl);
+      console.log("- Max retries:", maxRetries);  
+      console.log("- Timeout (ms):", timeout);
+      console.log("- Using default URL:", webhookUrl === getDefaultPMOWebhookUrl());
+      
+      if (!webhookUrl || webhookUrl.trim() === '') {
+        console.error("CRITICAL: PMO webhook URL is empty or undefined!");
+        return {
+          success: false,
+          error: 'PMO webhook URL not configured'
+        };
+      }
       
       for (var attempt = 1; attempt <= maxRetries; attempt++) {
         console.log("PMO request attempt", attempt, "of", maxRetries);
         
         try {
+          var payload = JSON.stringify({"text": ticketKey});
+          console.log("Sending PMO webhook request:");
+          console.log("- Method: POST");
+          console.log("- URL:", webhookUrl);
+          console.log("- Payload:", payload);
+          console.log("- Timeout:", timeout + "ms");
+          
+          var requestStartTime = new Date().getTime();
+          
           var response = UrlFetchApp.fetch(webhookUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            payload: JSON.stringify({"text": ticketKey}),
+            payload: payload,
             muteHttpExceptions: true,
             timeout: timeout
           });
           
+          var requestDuration = new Date().getTime() - requestStartTime;
+          console.log("PMO webhook request completed in:", requestDuration + "ms");
           console.log("PMO webhook response code:", response.getResponseCode());
+          console.log("PMO webhook response headers:", JSON.stringify(response.getAllHeaders()));
           
           if (response.getResponseCode() === 200) {
             var responseText = response.getContentText();
@@ -1679,20 +1751,44 @@ function buildAddOn(e) {
               };
             }
           } else {
+            // Enhanced HTTP error logging
+            var errorBody = response.getContentText();
+            console.error("PMO webhook HTTP error details:");
+            console.error("- Response code:", response.getResponseCode());
+            console.error("- Response body:", errorBody);
+            console.error("- Response headers:", JSON.stringify(response.getAllHeaders()));
+            console.error("- Request duration:", (new Date().getTime() - requestStartTime) + "ms");
+            
             return {
               success: false,
-              error: 'PMO webhook HTTP error: ' + response.getResponseCode() + ' - ' + response.getContentText()
+              error: 'PMO webhook HTTP error: ' + response.getResponseCode() + ' - ' + errorBody
             };
           }
         } catch (requestError) {
+          // Enhanced network error logging
+          console.error("PMO webhook network error on attempt", attempt + ":");
+          console.error("- Error type:", requestError.name || 'Unknown');
+          console.error("- Error message:", requestError.message || 'No message');
+          console.error("- Error stack:", requestError.stack || 'No stack');
+          console.error("- Request duration before error:", (new Date().getTime() - requestStartTime) + "ms");
+          console.error("- Timeout setting:", timeout + "ms");
+          
+          // Check specific error types
+          if (requestError.message && requestError.message.includes('timeout')) {
+            console.error("TIMEOUT ERROR: Request exceeded timeout of", timeout + "ms");
+          } else if (requestError.message && requestError.message.includes('network')) {
+            console.error("NETWORK ERROR: Connection failed to", webhookUrl);
+          }
+          
           if (attempt === maxRetries) {
+            console.error("PMO webhook failed after all", maxRetries, "retry attempts");
             return {
               success: false,
               error: 'PMO webhook network error after ' + maxRetries + ' attempts: ' + requestError.message
             };
           }
           
-          console.log("Request error on attempt", attempt, ":", requestError.message);
+          console.log("Retrying PMO request in 1 second... (attempt", attempt, "of", maxRetries + ")");
           Utilities.sleep(1000);
           continue;
         }
@@ -1732,6 +1828,95 @@ function buildAddOn(e) {
   
   function getDefaultPMOWebhookUrl() {
     return 'https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299';
+  }
+  
+  function logDiagnosticInfo() {
+    console.log("=== DIAGNOSTIC INFORMATION DUMP ===");
+    console.log("Timestamp:", new Date().toISOString());
+    console.log("Apps Script execution info:");
+    
+    try {
+      // Log execution environment
+      console.log("- Time zone:", Session.getScriptTimeZone());
+      console.log("- Active user email:", Session.getActiveUser().getEmail());
+      console.log("- Script permissions:", Session.getScriptTimeZone() ? "authorized" : "not authorized");
+      
+      // Log settings
+      console.log("\nUser settings diagnostic:");
+      var settings = getUserSettings();
+      console.log("- Settings object type:", typeof settings);
+      console.log("- Settings keys:", Object.keys(settings || {}));
+      if (settings) {
+        console.log("- Jira URL configured:", !!settings.jiraUrl);
+        console.log("- Jira Token configured:", !!settings.jiraToken);
+        console.log("- PMO URL configured:", !!settings.pmoWebhookUrl);
+        console.log("- PMO timeout:", settings.pmoTimeout);
+        console.log("- PMO retries:", settings.pmoRetryAttempts);
+      }
+      
+      // Log PMO connectivity 
+      console.log("\nPMO connectivity diagnostic:");
+      console.log("- Default PMO URL:", getDefaultPMOWebhookUrl());
+      console.log("- URL fetch available:", typeof UrlFetchApp !== 'undefined');
+      
+      // Log Gmail context
+      if (typeof GmailApp !== 'undefined') {
+        console.log("\nGmail context diagnostic:");
+        console.log("- Gmail API available:", true);
+        console.log("- Drive API available:", typeof DriveApp !== 'undefined');
+      } else {
+        console.log("\nGmail context: Not available (normal for manual testing)");
+      }
+      
+      console.log("=== END DIAGNOSTIC INFO ===");
+    } catch (diagError) {
+      console.error("Error during diagnostic logging:", diagError.message);
+    }
+  }
+  
+  // Manual testing function for PMO connectivity (can be run directly from Apps Script editor)
+  function debugTestPMOConnectivity() {
+    console.log("=== MANUAL PMO CONNECTIVITY DEBUG TEST ===");
+    
+    try {
+      // Run diagnostics first
+      logDiagnosticInfo();
+      
+      console.log("\n=== TESTING PMO WEBHOOK CONNECTIVITY ===");
+      
+      // Test with a debug ticket
+      var testTicket = "CXPRODELIVERY-DEBUG-" + new Date().getTime();
+      console.log("Testing with ticket:", testTicket);
+      
+      var result = getPMOProjectFolder(testTicket);
+      
+      console.log("\n=== PMO TEST RESULTS ===");
+      console.log("Success:", result.success);
+      if (result.success) {
+        console.log("Folder ID:", result.folderId);
+        console.log("Created:", result.created);
+        
+        // Test folder access
+        console.log("\n=== TESTING FOLDER ACCESS ===");
+        var folderResult = getFolderByIdSafely(result.folderId);
+        console.log("Folder access success:", folderResult.success);
+        if (folderResult.success) {
+          console.log("Folder name:", folderResult.name);
+        } else {
+          console.log("Folder access error:", folderResult.error);
+        }
+      } else {
+        console.log("PMO Error:", result.error);
+      }
+      
+      console.log("=== END MANUAL PMO TEST ===");
+      return result;
+      
+    } catch (error) {
+      console.error("Manual PMO test failed:", error.message);
+      console.error("Error stack:", error.stack);
+      return { success: false, error: error.message };
+    }
   }
   
   function getPMOErrorMessage(error, ticketKey) {
