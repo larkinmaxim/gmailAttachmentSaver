@@ -1836,10 +1836,25 @@ function buildAddOn(e) {
     console.log("Apps Script execution info:");
     
     try {
-      // Log execution environment
-      console.log("- Time zone:", Session.getScriptTimeZone());
-      console.log("- Active user email:", Session.getActiveUser().getEmail());
-      console.log("- Script permissions:", Session.getScriptTimeZone() ? "authorized" : "not authorized");
+      // Log execution environment (with permission error handling)
+      try {
+        console.log("- Time zone:", Session.getScriptTimeZone());
+      } catch (tzError) {
+        console.log("- Time zone: Error getting timezone -", tzError.message);
+      }
+      
+      try {
+        console.log("- Active user email:", Session.getActiveUser().getEmail());
+      } catch (userError) {
+        console.log("- Active user email: Permission error -", userError.message);
+        console.log("- Note: userinfo.email OAuth scope may need authorization");
+      }
+      
+      try {
+        console.log("- Script permissions:", Session.getScriptTimeZone() ? "timezone authorized" : "timezone not authorized");
+      } catch (permError) {
+        console.log("- Script permissions: Error checking permissions -", permError.message);
+      }
       
       // Log settings
       console.log("\nUser settings diagnostic:");
@@ -1859,13 +1874,48 @@ function buildAddOn(e) {
       console.log("- Default PMO URL:", getDefaultPMOWebhookUrl());
       console.log("- URL fetch available:", typeof UrlFetchApp !== 'undefined');
       
-      // Log Gmail context
-      if (typeof GmailApp !== 'undefined') {
-        console.log("\nGmail context diagnostic:");
-        console.log("- Gmail API available:", true);
-        console.log("- Drive API available:", typeof DriveApp !== 'undefined');
-      } else {
-        console.log("\nGmail context: Not available (normal for manual testing)");
+      // Log Gmail context (with API access error handling)
+      console.log("\nAPI availability diagnostic:");
+      try {
+        if (typeof GmailApp !== 'undefined') {
+          console.log("- Gmail API: Available");
+          // Test basic Gmail access
+          try {
+            var gmailQuota = GmailApp.getRemainingDailyQuota();
+            console.log("- Gmail quota remaining:", gmailQuota);
+          } catch (gmailError) {
+            console.log("- Gmail access: Permission error -", gmailError.message);
+          }
+        } else {
+          console.log("- Gmail API: Not available (manual testing mode)");
+        }
+      } catch (gmailCheckError) {
+        console.log("- Gmail API: Error checking availability -", gmailCheckError.message);
+      }
+      
+      try {
+        if (typeof DriveApp !== 'undefined') {
+          console.log("- Drive API: Available");
+          // Test basic Drive access
+          try {
+            var driveQuota = DriveApp.getStorageUsed();
+            console.log("- Drive storage used:", driveQuota, "bytes");
+          } catch (driveError) {
+            console.log("- Drive access: Permission error -", driveError.message);
+          }
+        } else {
+          console.log("- Drive API: Not available");
+        }
+      } catch (driveCheckError) {
+        console.log("- Drive API: Error checking availability -", driveCheckError.message);
+      }
+      
+      try {
+        console.log("- UrlFetch API: Available -", typeof UrlFetchApp !== 'undefined');
+        console.log("- CardService API: Available -", typeof CardService !== 'undefined');
+        console.log("- PropertiesService API: Available -", typeof PropertiesService !== 'undefined');
+      } catch (apiCheckError) {
+        console.log("- API availability check error:", apiCheckError.message);
       }
       
       console.log("=== END DIAGNOSTIC INFO ===");
@@ -1874,12 +1924,101 @@ function buildAddOn(e) {
     }
   }
   
+  // Permission testing function - run this first if you get OAuth errors
+  function debugTestPermissions() {
+    console.log("=== OAUTH PERMISSIONS DEBUG TEST ===");
+    console.log("Testing all required OAuth scopes...\n");
+    
+    var permissionResults = {
+      gmail: false,
+      drive: false,
+      userinfo: false,
+      urlfetch: false,
+      total: 0,
+      passed: 0
+    };
+    
+    // Test Gmail permissions
+    try {
+      var quota = GmailApp.getRemainingDailyQuota();
+      console.log("✅ Gmail API: PASSED (quota:", quota + ")");
+      permissionResults.gmail = true;
+      permissionResults.passed++;
+    } catch (error) {
+      console.log("❌ Gmail API: FAILED -", error.message);
+    }
+    permissionResults.total++;
+    
+    // Test Drive permissions
+    try {
+      var storage = DriveApp.getStorageUsed();
+      console.log("✅ Drive API: PASSED (storage used:", storage, "bytes)");
+      permissionResults.drive = true;
+      permissionResults.passed++;
+    } catch (error) {
+      console.log("❌ Drive API: FAILED -", error.message);
+    }
+    permissionResults.total++;
+    
+    // Test user info permissions  
+    try {
+      var email = Session.getActiveUser().getEmail();
+      console.log("✅ User Info API: PASSED (email:", email + ")");
+      permissionResults.userinfo = true;
+      permissionResults.passed++;
+    } catch (error) {
+      console.log("❌ User Info API: FAILED -", error.message);
+      console.log("   Fix: Ensure 'https://www.googleapis.com/auth/userinfo.email' is in OAuth scopes");
+    }
+    permissionResults.total++;
+    
+    // Test external requests (for PMO webhook)
+    try {
+      // Simple test request to check if external requests are allowed
+      if (typeof UrlFetchApp !== 'undefined') {
+        console.log("✅ External Requests: PASSED (UrlFetchApp available)");
+        permissionResults.urlfetch = true;
+        permissionResults.passed++;
+      } else {
+        console.log("❌ External Requests: FAILED (UrlFetchApp not available)");
+      }
+    } catch (error) {
+      console.log("❌ External Requests: FAILED -", error.message);
+    }
+    permissionResults.total++;
+    
+    console.log("\n=== PERMISSION TEST SUMMARY ===");
+    console.log("Passed:", permissionResults.passed, "of", permissionResults.total);
+    if (permissionResults.passed === permissionResults.total) {
+      console.log("🎉 ALL PERMISSIONS OK - Ready for PMO testing");
+    } else {
+      console.log("⚠️  SOME PERMISSIONS MISSING - Check OAuth scopes in appsscript.json");
+      console.log("Required scopes:");
+      console.log("- https://www.googleapis.com/auth/gmail.readonly");
+      console.log("- https://www.googleapis.com/auth/drive");  
+      console.log("- https://www.googleapis.com/auth/userinfo.email");
+      console.log("- https://www.googleapis.com/auth/script.external_request");
+    }
+    
+    return permissionResults;
+  }
+  
   // Manual testing function for PMO connectivity (can be run directly from Apps Script editor)
   function debugTestPMOConnectivity() {
     console.log("=== MANUAL PMO CONNECTIVITY DEBUG TEST ===");
     
     try {
-      // Run diagnostics first
+      // Test permissions first
+      console.log("Step 1: Testing OAuth permissions...");
+      var permissionTest = debugTestPermissions();
+      
+      if (permissionTest.passed !== permissionTest.total) {
+        console.log("⚠️  Cannot proceed with PMO test - permission issues detected");
+        console.log("Fix permissions first, then run debugTestPMOConnectivity() again");
+        return { success: false, error: "OAuth permissions not configured" };
+      }
+      
+      console.log("\nStep 2: Running system diagnostics...");
       logDiagnosticInfo();
       
       console.log("\n=== TESTING PMO WEBHOOK CONNECTIVITY ===");
