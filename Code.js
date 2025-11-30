@@ -1,3 +1,406 @@
+// ===== SCRIPT PROPERTIES SETUP =====
+
+/**
+ * Setup Script Properties for secure credential storage
+ * Run this function once to configure authentication credentials
+ */
+function setupScriptProperties() {
+  console.log("=== SETTING UP SCRIPT PROPERTIES ===");
+  
+  try {
+    var scriptProperties = PropertiesService.getScriptProperties();
+    
+    // Set the required environment variables for 2-stage OAuth authentication
+    scriptProperties.setProperties({
+       
+      // Core service URLs
+      'TRIMBLE_AUTH_SERVER_TOKEN': 'your_auth_server_token_here',  // Add your Trimble auth server token
+      'PMO_WEBHOOK_URL': 'https://flows.stage.trimble-ai.com/agentic/workflows/v1/webhook-test/55633332-0344-4811-8f3a-46e6be725a42',
+      'TRIMBLE_OAUTH_URL': 'https://stage.id.trimblecloud.com/oauth/token',
+      'DEFAULT_JIRA_URL': 'https://support.transporeon.com',
+      
+      // OAuth configuration
+      'OAUTH_GRANT_TYPE': 'client_credentials',
+      'OAUTH_SCOPE': 'Agentic-N8N-Webhook',
+      
+      // Storage configuration
+      'SETTINGS_STORAGE_KEY': 'JIRA_SETTINGS'
+    });
+    
+    console.log("✅ Script properties configured successfully:");
+    console.log("  - WEBHOOK_USERNAME: larmax (legacy)");
+    console.log("  - WEBHOOK_PASSWORD: ****** (hidden, legacy)");
+    console.log("  - TRIMBLE_AUTH_SERVER_TOKEN: ****** (hidden)");
+    console.log("  - PMO_WEBHOOK_URL: " + scriptProperties.getProperty('PMO_WEBHOOK_URL'));
+    console.log("  - TRIMBLE_OAUTH_URL: " + scriptProperties.getProperty('TRIMBLE_OAUTH_URL'));
+    console.log("  - DEFAULT_JIRA_URL: " + scriptProperties.getProperty('DEFAULT_JIRA_URL'));
+    console.log("  - OAUTH_GRANT_TYPE: " + scriptProperties.getProperty('OAUTH_GRANT_TYPE'));
+    console.log("  - OAUTH_SCOPE: " + scriptProperties.getProperty('OAUTH_SCOPE'));
+    console.log("  - SETTINGS_STORAGE_KEY: " + scriptProperties.getProperty('SETTINGS_STORAGE_KEY'));
+    
+    return true;
+    
+  } catch (error) {
+    console.error("❌ Failed to setup script properties:", error.message);
+    return false;
+  }
+}
+
+/**
+ * Get webhook credentials from Script Properties
+ */
+function getWebhookCredentials() {
+  var properties = PropertiesService.getScriptProperties();
+  var username = properties.getProperty('WEBHOOK_USERNAME');
+  var password = properties.getProperty('WEBHOOK_PASSWORD');
+  
+  if (!username || !password) {
+    throw new Error('Webhook credentials not configured. Please run setupScriptProperties() first.');
+  }
+  
+  return {
+    username: username,
+    password: password,
+    encodedCredentials: Utilities.base64Encode(username + ':' + password)
+  };
+}
+
+/**
+ * Get PMO Webhook URL from Script Properties
+ */
+function getPMOWebhookURL() {
+  var properties = PropertiesService.getScriptProperties();
+  var url = properties.getProperty('PMO_WEBHOOK_URL');
+  
+  if (!url) {
+    throw new Error('PMO_WEBHOOK_URL not configured. Please run setupScriptProperties() first.');
+  }
+  
+  return url;
+}
+
+/**
+ * Environment Variable Getter Functions
+ */
+
+/**
+ * Get Trimble Auth Server Token from Script Properties
+ */
+function getTrimbleAuthServerToken() {
+  var properties = PropertiesService.getScriptProperties();
+  var token = properties.getProperty('TRIMBLE_AUTH_SERVER_TOKEN');
+  
+  if (!token || token === 'your_auth_server_token_here') {
+    throw new Error('TRIMBLE_AUTH_SERVER_TOKEN not configured. Please set your auth server token in setupScriptProperties().');
+  }
+  
+  return token;
+}
+
+/**
+ * Get Trimble OAuth URL from Script Properties
+ */
+function getTrimbleOAuthURL() {
+  var properties = PropertiesService.getScriptProperties();
+  var url = properties.getProperty('TRIMBLE_OAUTH_URL');
+  
+  if (!url) {
+    // Fallback to hardcoded value for backward compatibility
+    return 'https://stage.id.trimblecloud.com/oauth/token';
+  }
+  
+  return url;
+}
+
+/**
+ * Get Default Jira URL from Script Properties
+ */
+function getDefaultJiraURL() {
+  var properties = PropertiesService.getScriptProperties();
+  var url = properties.getProperty('DEFAULT_JIRA_URL');
+  
+  if (!url) {
+    // Fallback to hardcoded value for backward compatibility
+    return 'https://support.transporeon.com';
+  }
+  
+  return url;
+}
+
+/**
+ * Get OAuth Grant Type from Script Properties
+ */
+function getOAuthGrantType() {
+  var properties = PropertiesService.getScriptProperties();
+  var grantType = properties.getProperty('OAUTH_GRANT_TYPE');
+  
+  if (!grantType) {
+    // Fallback to default value
+    return 'client_credentials';
+  }
+  
+  return grantType;
+}
+
+/**
+ * Get OAuth Scope from Script Properties
+ */
+function getOAuthScope() {
+  var properties = PropertiesService.getScriptProperties();
+  var scope = properties.getProperty('OAUTH_SCOPE');
+  
+  if (!scope) {
+    // Fallback to default value
+    return 'Agentic-N8N-Webhook';
+  }
+  
+  return scope;
+}
+
+/**
+ * Get Settings Storage Key from Script Properties
+ */
+function getSettingsStorageKey() {
+  var properties = PropertiesService.getScriptProperties();
+  var key = properties.getProperty('SETTINGS_STORAGE_KEY');
+  
+  if (!key) {
+    // Fallback to default value
+    return 'JIRA_SETTINGS';
+  }
+  
+  return key;
+}
+
+/**
+ * Token Cache Management
+ */
+
+/**
+ * Get cached OAuth token if still valid
+ */
+function getCachedOAuthToken() {
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var tokenData = properties.getProperty('CACHED_OAUTH_TOKEN');
+    
+    if (!tokenData) {
+      console.log("No cached OAuth token found");
+      return null;
+    }
+    
+    var cached = JSON.parse(tokenData);
+    var now = new Date().getTime();
+    var expiresAt = cached.expiresAt || 0;
+    
+    // Add 60 second buffer to avoid using tokens about to expire
+    var bufferTime = 60 * 1000; // 60 seconds
+    
+    if (now < (expiresAt - bufferTime)) {
+      var timeLeft = Math.floor((expiresAt - now) / 1000);
+      console.log("✅ Using cached OAuth token (expires in " + timeLeft + " seconds)");
+      return cached.accessToken;
+    } else {
+      console.log("❌ Cached OAuth token expired, will request new one");
+      // Clear expired token
+      properties.deleteProperty('CACHED_OAUTH_TOKEN');
+      return null;
+    }
+    
+  } catch (error) {
+    console.error("Error checking cached token:", error.message);
+    return null;
+  }
+}
+
+/**
+ * Cache OAuth token with expiration time
+ */
+function cacheOAuthToken(accessToken, expiresIn) {
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var now = new Date().getTime();
+    var expiresAt = now + (expiresIn * 1000); // Convert seconds to milliseconds
+    
+    var tokenData = {
+      accessToken: accessToken,
+      expiresIn: expiresIn,
+      expiresAt: expiresAt,
+      cachedAt: now
+    };
+    
+    properties.setProperty('CACHED_OAUTH_TOKEN', JSON.stringify(tokenData));
+    
+    var expiresInMinutes = Math.floor(expiresIn / 60);
+    console.log("✅ OAuth token cached successfully (expires in " + expiresInMinutes + " minutes)");
+    
+  } catch (error) {
+    console.error("Error caching OAuth token:", error.message);
+    // Don't throw error - caching is optional optimization
+  }
+}
+
+/**
+ * Clear cached OAuth token (force renewal)
+ */
+function clearCachedOAuthToken() {
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    properties.deleteProperty('CACHED_OAUTH_TOKEN');
+    console.log("🗑️ Cached OAuth token cleared");
+  } catch (error) {
+    console.error("Error clearing cached token:", error.message);
+  }
+}
+
+/**
+ * Get OAuth token status information
+ */
+function getOAuthTokenStatus() {
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var tokenData = properties.getProperty('CACHED_OAUTH_TOKEN');
+    
+    if (!tokenData) {
+      return {
+        cached: false,
+        message: "No cached token"
+      };
+    }
+    
+    var cached = JSON.parse(tokenData);
+    var now = new Date().getTime();
+    var expiresAt = cached.expiresAt || 0;
+    var timeLeft = Math.floor((expiresAt - now) / 1000);
+    
+    if (timeLeft > 60) {
+      return {
+        cached: true,
+        valid: true,
+        timeLeft: timeLeft,
+        message: "Valid token (expires in " + Math.floor(timeLeft / 60) + " minutes)"
+      };
+    } else if (timeLeft > 0) {
+      return {
+        cached: true,
+        valid: false,
+        timeLeft: timeLeft,
+        message: "Token expires soon (" + timeLeft + " seconds)"
+      };
+    } else {
+      return {
+        cached: true,
+        valid: false,
+        timeLeft: 0,
+        message: "Token expired " + Math.abs(timeLeft) + " seconds ago"
+      };
+    }
+    
+  } catch (error) {
+    return {
+      cached: false,
+      error: error.message,
+      message: "Error checking token status"
+    };
+  }
+}
+
+/**
+ * Handle expired token errors and retry with new token
+ */
+function handleExpiredTokenError(originalError, retryFunction, retryParams) {
+  console.log("🔄 Handling potential expired token error...");
+  
+  // Check if error indicates expired token
+  if (originalError.message.includes('401') || originalError.message.includes('403') || 
+      originalError.message.includes('Unauthorized') || originalError.message.includes('Forbidden')) {
+    
+    console.log("⚠️ Detected authentication error, clearing cached token and retrying...");
+    clearCachedOAuthToken();
+    
+    try {
+      // Retry the operation with a fresh token
+      console.log("🔄 Retrying operation with fresh OAuth token...");
+      return retryFunction.apply(null, retryParams);
+    } catch (retryError) {
+      console.error("❌ Retry failed:", retryError.message);
+      throw new Error('Authentication failed even after token renewal: ' + retryError.message);
+    }
+  } else {
+    // Not an authentication error, re-throw original error
+    throw originalError;
+  }
+}
+
+/**
+ * Stage 1: Get OAuth token from Trimble auth server with caching
+ * Returns access token for Stage 2 API calls
+ * IMPORTANT: Token expires after 3600 seconds (1 hour)
+ */
+function getTrimbleOAuthToken() {
+  console.log("=== STAGE 1: TRIMBLE OAUTH TOKEN RETRIEVAL ===");
+  
+  try {
+    // Check if we have a valid cached token first
+    var cachedToken = getCachedOAuthToken();
+    if (cachedToken) {
+      return cachedToken;
+    }
+    
+    // No valid cached token, request new one
+    console.log("Requesting new OAuth token from server...");
+    
+    var authServerToken = getTrimbleAuthServerToken();
+    var authUrl = getTrimbleOAuthURL();
+    var grantType = getOAuthGrantType();
+    var scope = getOAuthScope();
+    
+    console.log("OAuth request to:", authUrl);
+    console.log("Grant type:", grantType);
+    console.log("Scope:", scope);
+    
+    var payload = 'grant_type=' + encodeURIComponent(grantType) + '&scope=' + encodeURIComponent(scope);
+    
+    var response = UrlFetchApp.fetch(authUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': authServerToken,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      payload: payload,
+      muteHttpExceptions: true,
+      timeout: 10000
+    });
+    
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+    
+    console.log("OAuth response code:", responseCode);
+    console.log("OAuth response:", responseText);
+    
+    if (responseCode === 200) {
+      var data = JSON.parse(responseText);
+      if (data.access_token) {
+        var expiresIn = data.expires_in || 3600; // Default to 1 hour if not specified
+        console.log("✅ OAuth token retrieved successfully (expires in " + expiresIn + " seconds)");
+        
+        // Cache the token for future use
+        cacheOAuthToken(data.access_token, expiresIn);
+        
+        return data.access_token;
+      } else {
+        throw new Error('No access_token in response: ' + responseText);
+      }
+    } else {
+      throw new Error('OAuth request failed with code ' + responseCode + ': ' + responseText);
+    }
+    
+  } catch (error) {
+    console.error("❌ Stage 1 OAuth failed:", error.message);
+    throw new Error('Failed to get Trimble OAuth token: ' + error.message);
+  }
+}
+
 // ===== MAIN GMAIL ADD-ON FUNCTIONS =====
 
 function buildAddOn(e) {
@@ -14,15 +417,25 @@ function buildAddOn(e) {
       
       console.log("Settings validation results:");
       console.log("- Jira Token present:", !!settings.jiraToken);
-      console.log("- Jira URL present:", !!settings.jiraUrl);  
-      console.log("- PMO Webhook URL present:", !!settings.pmoWebhookUrl);
+      console.log("- Jira URL present:", !!settings.jiraUrl);
       
-      if (!settings.jiraToken || !settings.jiraUrl || !settings.pmoWebhookUrl) {
+      // Check environment variables for PMO integration
+      var pmoConfigured = false;
+      try {
+        getPMOWebhookURL();
+        getTrimbleAuthServerToken();
+        pmoConfigured = true;
+        console.log("- PMO Environment Variables: Configured");
+      } catch (error) {
+        console.log("- PMO Environment Variables: NOT CONFIGURED -", error.message);
+      }
+      
+      if (!settings.jiraToken || !settings.jiraUrl || !pmoConfigured) {
         console.log("SETTINGS INCOMPLETE - showing setup screen");
         console.log("Missing:");
         if (!settings.jiraToken) console.log("- Jira Token");
         if (!settings.jiraUrl) console.log("- Jira URL");
-        if (!settings.pmoWebhookUrl) console.log("- PMO Webhook URL");
+        if (!pmoConfigured) console.log("- PMO Environment Variables (run setupScriptProperties())");
         
         return [buildSettingsCard(true)]; // true = first time setup
       }
@@ -176,38 +589,67 @@ function buildAddOn(e) {
       
       console.log("Gmail context found, loading attachments...");
       
-      // Get attachments from the email thread
+      // Get attachments and Google Docs links from the email thread
       try {
         var threadId = e.gmail.threadId;
         var thread = GmailApp.getThreadById(threadId);
         var messages = thread.getMessages();
         var allAttachments = [];
+        var allGoogleDocsLinks = [];
         
         for (var i = 0; i < messages.length; i++) {
           var message = messages[i];
           var attachments = message.getAttachments();
           
+          // Process regular attachments
           for (var j = 0; j < attachments.length; j++) {
             var attachment = attachments[j];
             allAttachments.push({
               name: attachment.getName(),
               size: attachment.getSize(),
               attachment: attachment,
-              messageIndex: i
+              messageIndex: i,
+              type: 'regular'
+            });
+          }
+          
+          // Extract Google Docs links from message content
+          var googleDocsLinks = extractGoogleDocsLinks(message);
+          for (var k = 0; k < googleDocsLinks.length; k++) {
+            var docLink = googleDocsLinks[k];
+            allGoogleDocsLinks.push({
+              name: docLink.title,
+              size: 0, // Google Docs links don't have a file size
+              url: docLink.url,
+              docType: docLink.type,
+              messageIndex: i,
+              type: 'google_docs'
             });
           }
         }
         
-                if (allAttachments.length > 0) {
-            // Group attachments by file extension
+        // Combine regular attachments and Google Docs links
+        var combinedAttachments = allAttachments.concat(allGoogleDocsLinks);
+        
+                if (combinedAttachments.length > 0) {
+            // Group attachments by file extension (including Google Docs links)
             var attachmentsByExtension = {};
             var extensionCounts = {};
             
-            for (var i = 0; i < allAttachments.length; i++) {
-              var attachment = allAttachments[i];
+            for (var i = 0; i < combinedAttachments.length; i++) {
+              var attachment = combinedAttachments[i];
               var fileName = attachment.name;
-              var extension = fileName.lastIndexOf('.') > -1 ? 
-                fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase() : 'no-extension';
+              
+              // Determine extension/category
+              var extension;
+              if (attachment.type === 'google_docs') {
+                // Group Google Docs by their type (docs, sheets, slides, etc.)
+                extension = 'google-' + attachment.docType;
+              } else {
+                // Regular file extension
+                extension = fileName.lastIndexOf('.') > -1 ? 
+                  fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase() : 'no-extension';
+              }
               
               if (!attachmentsByExtension[extension]) {
                 attachmentsByExtension[extension] = [];
@@ -238,7 +680,7 @@ function buildAddOn(e) {
                 extension.toUpperCase() + ' files';
               var headerText = extDisplayName + " (" + count + ")";
               if (extIndex === 0) {
-                headerText = "📎 Select Attachments: " + headerText + " (Total: " + allAttachments.length + ")";
+                headerText = "📎 Select Attachments & Docs: " + headerText + " (Total: " + combinedAttachments.length + ")";
               }
               
               var extensionSection = CardService.newCardSection()
@@ -259,10 +701,19 @@ function buildAddOn(e) {
                   isSelected = storedSelections[uniqueKey];
                 }
                 
+                // Create display text based on attachment type
+                var displayText;
+                if (attachment.type === 'google_docs') {
+                  var docTypeIcon = getGoogleDocsIcon(attachment.docType);
+                  displayText = docTypeIcon + " " + attachment.name + " (Google " + attachment.docType.charAt(0).toUpperCase() + attachment.docType.slice(1) + ")";
+                } else {
+                  displayText = attachment.name + " (" + formatFileSize(attachment.size) + ")";
+                }
+                
                 var checkbox = CardService.newSelectionInput()
                   .setType(CardService.SelectionInputType.CHECK_BOX)
                   .setFieldName("attachment_" + originalIndex)
-                  .addItem(attachment.name + " (" + formatFileSize(attachment.size) + ")", originalIndex.toString(), isSelected);
+                  .addItem(displayText, originalIndex.toString(), isSelected);
                 
                 extensionSection.addWidget(checkbox);
               }
@@ -285,15 +736,41 @@ function buildAddOn(e) {
       // Add main section to card first
       card.addSection(section);
       
-      // Save button - add as separate section
-      var saveSection = CardService.newCardSection();
+      // ===== SUBFOLDER SELECTION & SAVE BUTTON SECTION =====
+      var saveSection = CardService.newCardSection()
+        .setHeader("📁 Save Attachments");
+      
+      // Check if subfolder feature is enabled
+      var useEnhancedUI = shouldUseEnhancedUI();
+      
+      if (useEnhancedUI) {
+        // Add subfolder selection dropdown (no title to avoid text overlap)
+        var subfolderDropdown = CardService.newSelectionInput()
+          .setType(CardService.SelectionInputType.DROPDOWN)
+          .setFieldName("selectedSubfolder")
+          .addItem("Project Root (Default)", "", true)
+          .addItem("01_System_Design", "01_System_Design", false)
+          .addItem("02_Meet_Recordings", "02_Meet_Recordings", false)
+          .addItem("03_Correspondence", "03_Correspondence", false)
+          .addItem("04_Project_Documentation", "04_Project_Documentation", false)
+          .addItem("04_Project_Documentation > Project_Management", "04_Project_Documentation/Project_Management", false)
+          .addItem("04_Project_Documentation > Carrier_Onboarding", "04_Project_Documentation/Carrier_Onboarding", false);
+        
+        saveSection.addWidget(subfolderDropdown);
+        
+        // Add helpful text with better spacing
+        var helperText = CardService.newTextParagraph()
+          .setText("<font color=\"#888888\"><i>Folders created automatically if needed</i></font>");
+        saveSection.addWidget(helperText);
+      }
+      
       var saveAction = CardService.newAction()
         .setFunctionName("saveSelectedAttachmentsToGDrive")
         .setParameters({threadId: (e && e.gmail) ? e.gmail.threadId : ""});
       
       var saveButtonSet = CardService.newButtonSet()
         .addButton(CardService.newTextButton()
-          .setText("Save to PMO Folder")
+          .setText("💾 Save to PMO Folder")
           .setOnClickAction(saveAction));
       
       saveSection.addWidget(saveButtonSet);
@@ -328,7 +805,7 @@ function buildAddOn(e) {
       
       var saveButtonSet = CardService.newButtonSet()
         .addButton(CardService.newTextButton()
-          .setText("Save to PMO Folder")
+          .setText("Save to Folder")
           .setOnClickAction(CardService.newAction().setFunctionName("saveSelectedAttachmentsToGDrive")));
       fallbackSection.addWidget(saveButtonSet);
       
@@ -375,7 +852,7 @@ function buildAddOn(e) {
       .setFieldName("jiraUrl")
       .setTitle("Jira URL")
       .setHint("e.g., https://your-company.atlassian.net")
-      .setValue(settings.jiraUrl || "https://support.transporeon.com");
+      .setValue(settings.jiraUrl || getDefaultJiraURL());
     settingsSection.addWidget(jiraUrlInput);
     console.log("Jira URL input added successfully");
     
@@ -407,40 +884,6 @@ function buildAddOn(e) {
     
     card.addSection(settingsSection);
     
-    // PMO Integration Settings Section
-    var pmoSection = CardService.newCardSection()
-      .setHeader("PMO Project Folders (Required)");
-    
-    // PMO Webhook URL
-    var pmoUrlInput = CardService.newTextInput()
-      .setFieldName("pmoWebhookUrl")
-      .setTitle("PMO Webhook URL")
-      .setHint("URL for PMO project folder lookup (required)")
-      .setValue(settings.pmoWebhookUrl || getDefaultPMOWebhookUrl());
-    pmoSection.addWidget(pmoUrlInput);
-    
-    // PMO Timeout Setting
-    var pmoTimeoutInput = CardService.newTextInput()
-      .setFieldName("pmoTimeout")
-      .setTitle("PMO Timeout (ms)")
-      .setHint("Timeout for PMO webhook calls (default: 10000)")
-      .setValue(String(settings.pmoTimeout || 10000));
-    pmoSection.addWidget(pmoTimeoutInput);
-    
-    // PMO Retry Attempts
-    var pmoRetryInput = CardService.newTextInput()
-      .setFieldName("pmoRetryAttempts")
-      .setTitle("PMO Retry Attempts")
-      .setHint("Retry attempts for undefined responses (default: 2)")
-      .setValue(String(settings.pmoRetryAttempts || 2));
-    pmoSection.addWidget(pmoRetryInput);
-    
-    // PMO Help Text
-    var pmoHelpText = CardService.newTextParagraph()
-      .setText("📋 PMO Integration (Mandatory):\n• All attachments saved to PMO-managed project folders\n• PMO webhook automatically creates folders if they don't exist\n• Retry logic handles folder creation timing issues");
-    pmoSection.addWidget(pmoHelpText);
-    
-    card.addSection(pmoSection);
     console.log("Settings section added to card successfully");
     
     // Action buttons section
@@ -467,6 +910,27 @@ function buildAddOn(e) {
         .setText("🧪 Test PMO Connection")
         .setOnClickAction(CardService.newAction().setFunctionName("testPMOConnection")));
     buttonSection.addWidget(testPMOButtonSet);
+    
+    // OAuth Test Button
+    var oauthTestButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("🔐 Test 2-Stage OAuth")
+        .setOnClickAction(CardService.newAction().setFunctionName("testTrimbleOAuthFlow")));
+    buttonSection.addWidget(oauthTestButtonSet);
+    
+    // Environment Variables Test Button
+    var envTestButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("⚙️ Test Environment Variables")
+        .setOnClickAction(CardService.newAction().setFunctionName("testEnvironmentVariables")));
+    buttonSection.addWidget(envTestButtonSet);
+    
+    // OAuth Token Caching Test Button
+    var tokenTestButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("🕒 Test Token Caching")
+        .setOnClickAction(CardService.newAction().setFunctionName("testOAuthTokenCaching")));
+    buttonSection.addWidget(tokenTestButtonSet);
     
     // Back button (only if not first time)
     if (!isFirstTime) {
@@ -534,7 +998,7 @@ function buildAddOn(e) {
         .setFieldName("jiraUrl")
         .setTitle("Jira URL")
         .setHint("e.g., https://your-company.atlassian.net")
-        .setValue(settings.jiraUrl || "https://support.transporeon.com");
+        .setValue(settings.jiraUrl || getDefaultJiraURL());
       mainSection.addWidget(jiraUrlInput);
       
       // Jira Token input with masked value for security
@@ -573,43 +1037,6 @@ function buildAddOn(e) {
         .setText("💡 JQL Examples:\n• assignee = currentUser()\n• project = MYPROJECT AND status = 'In Progress'\n• 'Technical Project Manager' in (currentUser())");
       mainSection.addWidget(jqlHelp);
       
-      // PMO Integration Settings Section
-      var pmoSeparator = CardService.newTextParagraph()
-        .setText("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      mainSection.addWidget(pmoSeparator);
-      
-      var pmoHeaderText = CardService.newTextParagraph()
-        .setText("📁 **PMO Project Folders (Required)**");
-      mainSection.addWidget(pmoHeaderText);
-      
-      // PMO Webhook URL
-      var pmoUrlInput = CardService.newTextInput()
-        .setFieldName("pmoWebhookUrl")
-        .setTitle("PMO Webhook URL")
-        .setHint("URL for PMO project folder lookup (required)")
-        .setValue(settings.pmoWebhookUrl || getDefaultPMOWebhookUrl());
-      mainSection.addWidget(pmoUrlInput);
-      
-      // PMO Timeout Setting
-      var pmoTimeoutInput = CardService.newTextInput()
-        .setFieldName("pmoTimeout")
-        .setTitle("PMO Timeout (ms)")
-        .setHint("Timeout for PMO webhook calls (default: 10000)")
-        .setValue(String(settings.pmoTimeout || 10000));
-      mainSection.addWidget(pmoTimeoutInput);
-      
-      // PMO Retry Attempts
-      var pmoRetryInput = CardService.newTextInput()
-        .setFieldName("pmoRetryAttempts")
-        .setTitle("PMO Retry Attempts")
-        .setHint("Retry attempts for undefined responses (default: 2)")
-        .setValue(String(settings.pmoRetryAttempts || 2));
-      mainSection.addWidget(pmoRetryInput);
-      
-      // PMO Help Text
-      var pmoHelp = CardService.newTextParagraph()
-        .setText("📋 PMO Integration (Mandatory):\n• All attachments saved to PMO-managed project folders\n• PMO webhook automatically creates folders if they don't exist\n• Retry logic handles folder creation timing issues\n• Attachment save fails only if PMO webhook is unreachable");
-      mainSection.addWidget(pmoHelp);
       
       // Save button
       var saveButtonSet = CardService.newButtonSet()
@@ -631,6 +1058,27 @@ function buildAddOn(e) {
           .setText("🧪 Test PMO Connection")
           .setOnClickAction(CardService.newAction().setFunctionName("testPMOConnection")));
       mainSection.addWidget(testPMOButtonSet);
+      
+      // OAuth Test button
+      var oauthTestButtonSet = CardService.newButtonSet()
+        .addButton(CardService.newTextButton()
+          .setText("🔐 Test 2-Stage OAuth")
+          .setOnClickAction(CardService.newAction().setFunctionName("testTrimbleOAuthFlow")));
+      mainSection.addWidget(oauthTestButtonSet);
+      
+      // Environment Variables Test button
+      var envTestButtonSet = CardService.newButtonSet()
+        .addButton(CardService.newTextButton()
+          .setText("⚙️ Test Environment Variables")
+          .setOnClickAction(CardService.newAction().setFunctionName("testEnvironmentVariables")));
+      mainSection.addWidget(envTestButtonSet);
+      
+      // OAuth Token Caching Test button
+      var tokenTestButtonSet = CardService.newButtonSet()
+        .addButton(CardService.newTextButton()
+          .setText("🕒 Test Token Caching")
+          .setOnClickAction(CardService.newAction().setFunctionName("testOAuthTokenCaching")));
+      mainSection.addWidget(tokenTestButtonSet);
       
       // Back button
       var backButtonSet = CardService.newButtonSet()
@@ -696,7 +1144,7 @@ function buildAddOn(e) {
       if (jiraUrl.endsWith('/')) {
         jiraUrl = jiraUrl.slice(0, -1);
       }
-      
+
       // Validate URL format
       if (!jiraUrl.startsWith('http')) {
         return CardService.newActionResponseBuilder()
@@ -705,59 +1153,12 @@ function buildAddOn(e) {
           .build();
       }
       
-      // Get PMO settings from form input with enhanced validation
-      var pmoWebhookUrl = e.formInput.pmoWebhookUrl || getDefaultPMOWebhookUrl();
-      var pmoTimeout = parseInt(e.formInput.pmoTimeout) || 10000;
-      var pmoRetryAttempts = parseInt(e.formInput.pmoRetryAttempts) || 2;
       
-      // Enhanced PMO settings validation
-      if (!pmoWebhookUrl || !pmoWebhookUrl.trim().startsWith('http')) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("❌ PMO webhook URL is required and must start with http:// or https://"))
-          .build();
-      }
-      
-      // Validate PMO webhook URL format
-      try {
-        new URL(pmoWebhookUrl.trim());
-      } catch (urlError) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("❌ PMO webhook URL format is invalid. Please provide a valid URL."))
-          .build();
-      }
-      
-      // Validate timeout range
-      if (pmoTimeout < 5000 || pmoTimeout > 60000) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("❌ PMO timeout must be between 5000 and 60000 milliseconds (5-60 seconds)"))
-          .build();
-      }
-      
-      // Validate retry attempts range
-      if (pmoRetryAttempts < 1 || pmoRetryAttempts > 5) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("❌ PMO retry attempts must be between 1 and 5"))
-          .build();
-      }
-      
-      // Clean up webhook URL
-      pmoWebhookUrl = pmoWebhookUrl.trim();
-      if (pmoWebhookUrl.endsWith('/')) {
-        pmoWebhookUrl = pmoWebhookUrl.slice(0, -1);
-      }
-      
-      // Save settings including PMO configuration
+      // Save settings (PMO variables are configured in environment)
       var settings = {
         jiraUrl: jiraUrl,
         jiraToken: finalToken,
         customJql: customJql || getDefaultJQL(),
-        pmoWebhookUrl: pmoWebhookUrl,
-        pmoTimeout: pmoTimeout,
-        pmoRetryAttempts: pmoRetryAttempts,
         savedAt: new Date().toISOString()
       };
       
@@ -765,12 +1166,12 @@ function buildAddOn(e) {
       
       console.log("Settings saved successfully");
       
-      // Enhanced success notification with detailed feedback
-      var successMsg = "✅ Settings Saved Successfully!\n";
-      successMsg += "• Jira: " + jiraUrl + "\n";
-      successMsg += "• PMO Webhook: " + (pmoWebhookUrl === getDefaultPMOWebhookUrl() ? "Default" : "Custom") + "\n";
-      successMsg += "• PMO Timeout: " + pmoTimeout + "ms\n";
-      successMsg += "• PMO Retries: " + pmoRetryAttempts + "\n";
+      // Success notification for Jira settings only (PMO configured in environment)
+      var successMsg = "✅ Jira Settings Saved Successfully!\n";
+      successMsg += "• Jira URL: " + jiraUrl + "\n";
+      successMsg += "• API Token: " + (finalToken ? "Configured" : "Not Set") + "\n";
+      successMsg += "• JQL Query: " + (customJql ? "Custom" : "Default") + "\n\n";
+      successMsg += "📋 PMO Integration: Configured via environment variables\n";
       successMsg += "💡 Use 'Test Connections' to verify functionality";
       
       return CardService.newActionResponseBuilder()
@@ -820,6 +1221,237 @@ function buildAddOn(e) {
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
           .setText("❌ Test failed: " + error.message))
+        .build();
+    }
+  }
+  
+  /**
+   * Test all environment variables configuration
+   */
+  function testEnvironmentVariables(e) {
+    console.log("=== TEST ENVIRONMENT VARIABLES ===");
+    
+    try {
+      var results = [];
+      var allPassed = true;
+      
+      // Test each environment variable
+      try {
+        var authToken = getTrimbleAuthServerToken();
+        results.push("✅ TRIMBLE_AUTH_SERVER_TOKEN: Configured (" + authToken.length + " chars)");
+      } catch (error) {
+        results.push("❌ TRIMBLE_AUTH_SERVER_TOKEN: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var pmoUrl = getPMOWebhookURL();
+        results.push("✅ PMO_WEBHOOK_URL: " + pmoUrl);
+      } catch (error) {
+        results.push("❌ PMO_WEBHOOK_URL: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var oauthUrl = getTrimbleOAuthURL();
+        results.push("✅ TRIMBLE_OAUTH_URL: " + oauthUrl);
+      } catch (error) {
+        results.push("❌ TRIMBLE_OAUTH_URL: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var jiraUrl = getDefaultJiraURL();
+        results.push("✅ DEFAULT_JIRA_URL: " + jiraUrl);
+      } catch (error) {
+        results.push("❌ DEFAULT_JIRA_URL: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var grantType = getOAuthGrantType();
+        results.push("✅ OAUTH_GRANT_TYPE: " + grantType);
+      } catch (error) {
+        results.push("❌ OAUTH_GRANT_TYPE: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var scope = getOAuthScope();
+        results.push("✅ OAUTH_SCOPE: " + scope);
+      } catch (error) {
+        results.push("❌ OAUTH_SCOPE: " + error.message);
+        allPassed = false;
+      }
+      
+      try {
+        var storageKey = getSettingsStorageKey();
+        results.push("✅ SETTINGS_STORAGE_KEY: " + storageKey);
+      } catch (error) {
+        results.push("❌ SETTINGS_STORAGE_KEY: " + error.message);
+        allPassed = false;
+      }
+      
+      // Test OAuth token status
+      try {
+        var tokenStatus = getOAuthTokenStatus();
+        results.push("🔐 OAUTH_TOKEN_STATUS: " + tokenStatus.message);
+      } catch (error) {
+        results.push("❌ OAUTH_TOKEN_STATUS: " + error.message);
+      }
+      
+      var statusMsg = allPassed ? "✅ Environment Variables Test PASSED!" : "⚠️ Environment Variables Test - Issues Found";
+      var resultText = statusMsg + "\n\n" + results.join("\n");
+      
+      if (!allPassed) {
+        resultText += "\n\n💡 Run setupScriptProperties() to configure missing variables.";
+      }
+      
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText(resultText))
+        .build();
+        
+    } catch (error) {
+      console.error("❌ Environment variables test failed:", error.message);
+      
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText("❌ Environment Variables Test FAILED\n• Error: " + error.message + "\n• Run setupScriptProperties() first"))
+        .build();
+    }
+  }
+
+  /**
+   * Test OAuth token caching and expiration handling
+   */
+  function testOAuthTokenCaching(e) {
+    console.log("=== TEST OAUTH TOKEN CACHING ===");
+    
+    try {
+      var results = [];
+      
+      // Step 1: Check initial token status
+      var initialStatus = getOAuthTokenStatus();
+      results.push("📋 Initial Status: " + initialStatus.message);
+      
+      // Step 2: Get a token (this will cache it)
+      console.log("Getting OAuth token (will be cached)...");
+      var token1 = getTrimbleOAuthToken();
+      results.push("✅ Token Retrieved: " + token1.substring(0, 20) + "... (cached)");
+      
+      // Step 3: Get token again (should use cached)
+      console.log("Getting OAuth token again (should use cached)...");
+      var token2 = getTrimbleOAuthToken();
+      var isSameToken = token1 === token2;
+      results.push((isSameToken ? "✅" : "❌") + " Cache Test: " + (isSameToken ? "Used cached token" : "New token requested"));
+      
+      // Step 4: Check current status
+      var currentStatus = getOAuthTokenStatus();
+      results.push("📋 Current Status: " + currentStatus.message);
+      
+      // Step 5: Test manual cache clearing
+      console.log("Testing manual cache clearing...");
+      clearCachedOAuthToken();
+      var clearedStatus = getOAuthTokenStatus();
+      results.push("🗑️ After Clear: " + clearedStatus.message);
+      
+      // Step 6: Get fresh token after clearing
+      console.log("Getting fresh token after clearing cache...");
+      var token3 = getTrimbleOAuthToken();
+      var isDifferentToken = token1 !== token3;
+      results.push((isDifferentToken ? "✅" : "❌") + " Fresh Token: " + (isDifferentToken ? "New token obtained" : "Same token (unexpected)"));
+      
+      // Step 7: Final status
+      var finalStatus = getOAuthTokenStatus();
+      results.push("📋 Final Status: " + finalStatus.message);
+      
+      var successMsg = "✅ OAuth Token Caching Test COMPLETED!\n\n";
+      successMsg += results.join("\n");
+      successMsg += "\n\n💡 Token expires in 1 hour (3600 seconds)";
+      
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText(successMsg))
+        .build();
+        
+    } catch (error) {
+      console.error("❌ OAuth token caching test failed:", error.message);
+      
+      var errorMsg = "❌ OAuth Token Caching Test FAILED\n";
+      errorMsg += "• Error: " + error.message + "\n";
+      errorMsg += "• Check environment variable configuration\n";
+      errorMsg += "• Ensure TRIMBLE_AUTH_SERVER_TOKEN is set correctly";
+      
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText(errorMsg))
+        .build();
+    }
+  }
+
+  /**
+   * Test the complete 2-stage authentication flow
+   */
+  function testTrimbleOAuthFlow(e) {
+    console.log("=== TEST TRIMBLE 2-STAGE OAUTH FLOW ===");
+    
+    try {
+      // Stage 1: Test OAuth token retrieval
+      console.log("Testing Stage 1: OAuth token retrieval...");
+      var oauthToken = getTrimbleOAuthToken();
+      
+      if (oauthToken) {
+        console.log("✅ Stage 1 SUCCESS: OAuth token retrieved");
+        
+        // Stage 2: Test PMO webhook call with the token
+        console.log("Testing Stage 2: PMO webhook call with Bearer token...");
+        var testTicket = "CXPRODELIVERY-OAUTH-TEST-" + new Date().getTime();
+        var webhookUrl = getPMOWebhookURL();
+        
+        var response = UrlFetchApp.fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + oauthToken
+          },
+          payload: JSON.stringify({"text": testTicket}),
+          muteHttpExceptions: true,
+          timeout: 10000
+        });
+        
+        var responseCode = response.getResponseCode();
+        console.log("Stage 2 response code:", responseCode);
+        console.log("Stage 2 response:", response.getContentText());
+        
+        if (responseCode === 200) {
+          var successMsg = "✅ 2-Stage OAuth Authentication Test SUCCESSFUL!\n";
+          successMsg += "• Stage 1: OAuth token retrieved ✓\n";
+          successMsg += "• Stage 2: PMO webhook call with Bearer token ✓\n";
+          successMsg += "• Test Ticket: " + testTicket + "\n";
+          successMsg += "• Response Code: " + responseCode + "\n";
+          successMsg += "🔐 Authentication flow is working correctly!";
+          
+          return CardService.newActionResponseBuilder()
+            .setNotification(CardService.newNotification()
+              .setText(successMsg))
+            .build();
+        } else {
+          throw new Error("Stage 2 failed with code " + responseCode + ": " + response.getContentText());
+        }
+      }
+    } catch (error) {
+      console.error("❌ 2-Stage OAuth test failed:", error.message);
+      
+      var errorMsg = "❌ 2-Stage OAuth Authentication Test FAILED\n";
+      errorMsg += "• Error: " + error.message + "\n";
+      errorMsg += "• Check auth server token configuration\n";
+      errorMsg += "• Verify network connectivity\n";
+      errorMsg += "• Review logs for detailed error information";
+      
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText(errorMsg))
         .build();
     }
   }
@@ -1080,6 +1712,7 @@ function buildAddOn(e) {
           var thread = GmailApp.getThreadById(threadId);
           var messages = thread.getMessages();
           var allAttachments = [];
+          var allGoogleDocsLinks = [];
           console.log("Found", messages.length, "messages in thread");
           
           for (var i = 0; i < messages.length; i++) {
@@ -1087,20 +1720,40 @@ function buildAddOn(e) {
             var attachments = message.getAttachments();
             console.log("Message", i + 1, "has", attachments.length, "attachments");
             
+            // Process regular attachments
             for (var j = 0; j < attachments.length; j++) {
               var attachment = attachments[j];
               allAttachments.push({
                 name: attachment.getName(),
                 size: attachment.getSize(),
                 attachment: attachment,
-                messageIndex: i
+                messageIndex: i,
+                type: 'regular'
+              });
+            }
+            
+            // Extract Google Docs links from message content
+            var googleDocsLinks = extractGoogleDocsLinks(message);
+            console.log("Message", i + 1, "has", googleDocsLinks.length, "Google Docs links");
+            for (var k = 0; k < googleDocsLinks.length; k++) {
+              var docLink = googleDocsLinks[k];
+              allGoogleDocsLinks.push({
+                name: docLink.title,
+                size: 0, // Google Docs links don't have a file size
+                url: docLink.url,
+                docType: docLink.type,
+                messageIndex: i,
+                type: 'google_docs'
               });
             }
           }
           
-          console.log("Total attachments found:", allAttachments.length);
+          // Combine regular attachments and Google Docs links
+          var combinedAttachments = allAttachments.concat(allGoogleDocsLinks);
           
-          if (allAttachments.length > 0) {
+          console.log("Total attachments and Google Docs links found:", combinedAttachments.length);
+          
+          if (combinedAttachments.length > 0) {
             console.log("Creating attachment section...");
             
             // First, check if we have current form selections to preserve
@@ -1109,16 +1762,16 @@ function buildAddOn(e) {
             
             if (e.formInput) {
               console.log("=== CHECKING CURRENT FORM SELECTIONS ===");
-              for (var i = 0; i < allAttachments.length; i++) {
+              for (var i = 0; i < combinedAttachments.length; i++) {
                 var formFieldName = "attachment_" + i;
                 // If field exists in form input → selected = true, if missing → selected = false
                 var isCurrentlySelected = e.formInput.hasOwnProperty(formFieldName) && e.formInput[formFieldName] && e.formInput[formFieldName].length > 0;
                 
                 // Use unique key to handle duplicate filenames (filename + index)
-                var uniqueKey = allAttachments[i].name + "_" + i;
+                var uniqueKey = combinedAttachments[i].name + "_" + i;
                 currentSelections[uniqueKey] = isCurrentlySelected;
                 hasCurrentSelections = true;
-                console.log("Current form state for", allAttachments[i].name, "- field:", formFieldName, "- exists:", e.formInput.hasOwnProperty(formFieldName), "- selected:", isCurrentlySelected, "- stored as:", uniqueKey);
+                console.log("Current form state for", combinedAttachments[i].name, "- field:", formFieldName, "- exists:", e.formInput.hasOwnProperty(formFieldName), "- selected:", isCurrentlySelected, "- stored as:", uniqueKey);
               }
             }
             
@@ -1137,11 +1790,20 @@ function buildAddOn(e) {
             var attachmentsByExtension = {};
             var extensionCounts = {};
             
-            for (var i = 0; i < allAttachments.length; i++) {
-              var attachment = allAttachments[i];
+            for (var i = 0; i < combinedAttachments.length; i++) {
+              var attachment = combinedAttachments[i];
               var fileName = attachment.name;
-              var extension = fileName.lastIndexOf('.') > -1 ? 
+              
+              // Determine extension/category
+              var extension;
+              if (attachment.type === 'google_docs') {
+                // Group Google Docs by their type (docs, sheets, slides, etc.)
+                extension = 'google-' + attachment.docType;
+              } else {
+                // Regular file extension
+                extension = fileName.lastIndexOf('.') > -1 ? 
                 fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase() : 'no-extension';
+              }
               
               if (!attachmentsByExtension[extension]) {
                 attachmentsByExtension[extension] = [];
@@ -1172,7 +1834,7 @@ function buildAddOn(e) {
                 extension.toUpperCase() + ' files';
               var headerText = extDisplayName + " (" + count + ")";
               if (extIndex === 0) {
-                headerText = "📎 Select Attachments: " + headerText + " (Total: " + allAttachments.length + ")";
+                headerText = "📎 Select Attachments & Docs: " + headerText + " (Total: " + combinedAttachments.length + ")";
               }
               
               var extensionSection = CardService.newCardSection()
@@ -1201,10 +1863,19 @@ function buildAddOn(e) {
                   console.log("No stored selection found for", attachment.name, "(", uniqueKey, ") - using default (unselected):", isSelected);
                 }
                 
+                // Create display text based on attachment type
+                var displayText;
+                if (attachment.type === 'google_docs') {
+                  var docTypeIcon = getGoogleDocsIcon(attachment.docType);
+                  displayText = docTypeIcon + " " + attachment.name + " (Google " + attachment.docType.charAt(0).toUpperCase() + attachment.docType.slice(1) + ")";
+                } else {
+                  displayText = attachment.name + " (" + formatFileSize(attachment.size) + ")";
+                }
+                
                 var checkbox = CardService.newSelectionInput()
                   .setType(CardService.SelectionInputType.CHECK_BOX)
                   .setFieldName("attachment_" + originalIndex)
-                  .addItem(attachment.name + " (" + formatFileSize(attachment.size) + ")", originalIndex.toString(), isSelected);
+                  .addItem(displayText, originalIndex.toString(), isSelected);
                 
                 extensionSection.addWidget(checkbox);
               }
@@ -1224,14 +1895,53 @@ function buildAddOn(e) {
         console.log("No threadId, skipping attachment processing");
       }
       
-      // Add save button to main section
-      var saveButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("Save to PMO Folder")
-          .setOnClickAction(CardService.newAction()
-            .setFunctionName("saveSelectedAttachmentsToGDrive")
-            .setParameters({threadId: threadId})));
-      mainSection.addWidget(saveButtonSet);
+      // ===== SUBFOLDER SELECTION & SAVE BUTTON =====
+      // Check if subfolder feature is enabled
+      var useEnhancedUI = shouldUseEnhancedUI();
+      
+      if (useEnhancedUI) {
+        // Create separate section for subfolder selection
+        var subfolderSection = CardService.newCardSection()
+          .setHeader("📁 Save Attachments");
+        
+        // Dropdown without title to avoid text overlap
+        var subfolderDropdown = CardService.newSelectionInput()
+          .setType(CardService.SelectionInputType.DROPDOWN)
+          .setFieldName("selectedSubfolder")
+          .addItem("Project Root (Default)", "", true)
+          .addItem("01_System_Design", "01_System_Design", false)
+          .addItem("02_Meet_Recordings", "02_Meet_Recordings", false)
+          .addItem("03_Correspondence", "03_Correspondence", false)
+          .addItem("04_Project_Documentation", "04_Project_Documentation", false)
+          .addItem("04_Project_Documentation > Project_Management", "04_Project_Documentation/Project_Management", false)
+          .addItem("04_Project_Documentation > Carrier_Onboarding", "04_Project_Documentation/Carrier_Onboarding", false);
+        
+        subfolderSection.addWidget(subfolderDropdown);
+        
+        // Add helpful text with better spacing
+        var helperText = CardService.newTextParagraph()
+          .setText("<font color=\"#888888\"><i>Folders created automatically if needed</i></font>");
+        subfolderSection.addWidget(helperText);
+        
+        var saveButtonSet = CardService.newButtonSet()
+          .addButton(CardService.newTextButton()
+            .setText("💾 Save to PMO Folder")
+            .setOnClickAction(CardService.newAction()
+              .setFunctionName("saveSelectedAttachmentsToGDrive")
+              .setParameters({threadId: threadId})));
+        
+        subfolderSection.addWidget(saveButtonSet);
+        card.addSection(subfolderSection);
+      } else {
+        // Legacy UI - simple save button
+        var saveButtonSet = CardService.newButtonSet()
+          .addButton(CardService.newTextButton()
+            .setText("Save to PMO Folder")
+            .setOnClickAction(CardService.newAction()
+              .setFunctionName("saveSelectedAttachmentsToGDrive")
+              .setParameters({threadId: threadId})));
+        mainSection.addWidget(saveButtonSet);
+      }
       
       // Add sections to card in the correct order
       console.log("Adding main section to card...");
@@ -1308,29 +2018,51 @@ function buildAddOn(e) {
       
       console.log("Loading attachments from thread:", threadId);
       
-      // Get all attachments from the thread
+      // Get all attachments and Google Docs links from the thread
       var thread = GmailApp.getThreadById(threadId);
       var messages = thread.getMessages();
       var allAttachments = [];
+      var allGoogleDocsLinks = [];
       
       for (var i = 0; i < messages.length; i++) {
         var message = messages[i];
         var attachments = message.getAttachments();
         
+        // Process regular attachments
         for (var j = 0; j < attachments.length; j++) {
           var attachment = attachments[j];
           allAttachments.push({
             name: attachment.getName(),
             size: attachment.getSize(),
             attachment: attachment,
-            messageIndex: i
+            messageIndex: i,
+            type: 'regular'
+          });
+        }
+        
+        // Extract Google Docs links from message content
+        var googleDocsLinks = extractGoogleDocsLinks(message);
+        var emailSubject = message.getSubject();
+        for (var k = 0; k < googleDocsLinks.length; k++) {
+          var docLink = googleDocsLinks[k];
+          allGoogleDocsLinks.push({
+            name: docLink.title,
+            size: 0, // Google Docs links don't have a file size
+            url: docLink.url,
+            docType: docLink.type,
+            messageIndex: i,
+            type: 'google_docs',
+            emailSubject: emailSubject
           });
         }
       }
       
-      console.log("Found", allAttachments.length, "total attachments");
+      // Combine regular attachments and Google Docs links
+      var combinedAttachments = allAttachments.concat(allGoogleDocsLinks);
       
-      if (allAttachments.length === 0) {
+      console.log("Found", combinedAttachments.length, "total attachments and Google Docs links");
+      
+      if (combinedAttachments.length === 0) {
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
             .setText("No attachments found in this thread"))
@@ -1343,23 +2075,24 @@ function buildAddOn(e) {
       
       console.log("=== PROCESSING ATTACHMENT SELECTIONS FOR SAVE ===");
       console.log("ThreadId for storage:", threadId);
-      console.log("Total attachments to process:", allAttachments.length);
+      console.log("Total attachments to process:", combinedAttachments.length);
       console.log("Form input keys:", Object.keys(e.formInput));
       
-      for (var i = 0; i < allAttachments.length; i++) {
+      for (var i = 0; i < combinedAttachments.length; i++) {
         var checkboxValue = e.formInput["attachment_" + i];
         var isSelected = checkboxValue && checkboxValue.length > 0;
-        var attachmentName = allAttachments[i].name;
+        var attachmentName = combinedAttachments[i].name;
+        var attachmentType = combinedAttachments[i].type || 'regular';
         
-        console.log("Attachment", i, "(", attachmentName, ") - checkbox value:", checkboxValue, "- selected:", isSelected);
+        console.log("Attachment", i, "(", attachmentName, ") - type:", attachmentType, "- checkbox value:", checkboxValue, "- selected:", isSelected);
         
         // Store selection state for this attachment using unique key
         var uniqueKey = attachmentName + "_" + i;
         selectionState[uniqueKey] = isSelected;
         
         if (isSelected) {
-          selectedAttachments.push(allAttachments[i]);
-          console.log("Added to selected list:", attachmentName);
+          selectedAttachments.push(combinedAttachments[i]);
+          console.log("Added to selected list:", attachmentName, "(" + attachmentType + ")");
         }
       }
       
@@ -1377,24 +2110,26 @@ function buildAddOn(e) {
           .build();
       }
       
-      // PMO Integration Logic (ONLY METHOD) - Lookup/Create folder
-      console.log("=== STARTING PMO INTEGRATION ===");
-      console.log("Final ticket for PMO lookup:", finalTicket);
+  // N8N webhook Integration Logic (ONLY METHOD) - Lookup/Create folder
+      console.log("=== STARTING N8N webhook INTEGRATION ===");
+      console.log("Final ticket for Jira lookup:", finalTicket);
       console.log("Selected attachments count:", selectedAttachments.length);
-      console.log("PMO integration timestamp:", new Date().toISOString());
+      console.log("Integration timestamp:", new Date().toISOString());
       
-      // Enhanced user feedback during PMO operation
-      console.log("🔍 Contacting PMO system for project folder...");
+      // Enhanced user feedback during N8N webhook operation
+      console.log("🔍 Contacting N8N Webhook system for project folder...");
       
       var pmoResult = getPMOProjectFolder(finalTicket);
       
-      console.log("PMO lookup completed. Result:", JSON.stringify(pmoResult));
+      console.log("Lookup completed. Result:", JSON.stringify(pmoResult));
       
       if (!pmoResult.success) {
-        // Enhanced PMO error handling with user-friendly messages
-        console.error("PMO lookup failed:", pmoResult.error);
+        // Enhanced N8N webhook error handling with user-friendly messages
+        console.error("Lookup failed:", pmoResult.error);
         
-        var userFriendlyError = getPMOErrorMessage(pmoResult.error, finalTicket);
+        // Get selected subfolder for enhanced error message
+        var selectedSubfolder = e.formInput.selectedSubfolder || "";
+        var userFriendlyError = getPMOSubfolderErrorMessage(pmoResult.error, finalTicket, selectedSubfolder);
         
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
@@ -1402,31 +2137,69 @@ function buildAddOn(e) {
           .build();
       }
       
-      console.log("PMO returned folder ID:", pmoResult.folderId, "- Created:", pmoResult.created || false);
+      console.log("N8N webhook returned folder ID:", pmoResult.folderId, "- Created:", pmoResult.created || false);
       
       var folderResult = getFolderByIdSafely(pmoResult.folderId);
       
       if (!folderResult.success) {
-        // Enhanced folder access error handling
-        console.error("PMO folder access failed:", folderResult.error);
+        // Enhanced folder access error handling - Show request access card
+        console.error("Gdrive folder access failed:", folderResult.error);
         
-        var folderError = "❌ Cannot access PMO project folder for " + finalTicket + "\n\n";
-        folderError += "🔗 Folder ID: " + pmoResult.folderId + "\n";
-        folderError += "📋 Issue: " + folderResult.error + "\n\n";
-        folderError += "🔧 Possible Solutions:\n";
-        folderError += "• Check if you have access to the project folder\n";
-        folderError += "• Verify the folder wasn't moved or deleted\n";
-        folderError += "• Contact your project manager for folder permissions\n\n";
-        folderError += "💡 The PMO folder was found but cannot be accessed";
+        // Build and show request access card
+        var requestAccessCard = buildRequestAccessCard(finalTicket, pmoResult.folderId, folderResult.error);
         
         return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText(folderError))
+          .setNavigation(CardService.newNavigation().pushCard(requestAccessCard))
           .build();
       }
       
-      var ticketFolder = folderResult.folder;
+      var projectRootFolder = folderResult.folder;
       console.log("Using PMO folder:", folderResult.name);
+      
+      // ===== NEW: SUBFOLDER SELECTION SUPPORT =====
+      var selectedSubfolder = e.formInput.selectedSubfolder || "";
+      console.log("=== SUBFOLDER PROCESSING ===");
+      console.log("Selected subfolder:", selectedSubfolder || "(Project Root)");
+      
+      // Validate subfolder selection
+      var validation = validateSubfolderSelection(selectedSubfolder);
+      if (!validation.valid) {
+        console.warn("Subfolder validation warning:", validation.warning);
+        selectedSubfolder = validation.sanitized;
+      }
+      
+      // Get or create target subfolder
+      var targetFolderResult = getOrCreateProjectSubfolder(projectRootFolder, selectedSubfolder);
+      
+      if (!targetFolderResult.success) {
+        // Attempt fallback strategy
+        console.error("Subfolder creation failed, attempting fallback");
+        var fallbackResult = handleSubfolderCreationFailure(projectRootFolder, selectedSubfolder, targetFolderResult);
+        
+        if (!fallbackResult.success) {
+          // Complete failure - show error
+          var subfolderError = getSubfolderCreationErrorMessage(
+            targetFolderResult.error,
+            projectRootFolder,
+            selectedSubfolder
+          );
+          
+          return CardService.newActionResponseBuilder()
+            .setNotification(CardService.newNotification()
+              .setText(subfolderError))
+            .build();
+        }
+        
+        // Fallback succeeded - use fallback folder
+        targetFolderResult = fallbackResult;
+        console.log("Using fallback strategy:", fallbackResult.fallbackUsed);
+      }
+      
+      var ticketFolder = targetFolderResult.folder;
+      var actualFolderPath = targetFolderResult.path;
+      console.log("Target folder ready:", actualFolderPath);
+      console.log("Target folder ID:", ticketFolder.getId());
+      // ===== END SUBFOLDER SUPPORT =====
       
       // Save selected attachments with duplicate handling
       var savedCount = 0;
@@ -1438,49 +2211,72 @@ function buildAddOn(e) {
         try {
           var attachmentData = selectedAttachments[i];
           var fileName = attachmentData.name;
-          console.log("Processing attachment:", fileName);
+          var attachmentType = attachmentData.type || 'regular';
+          console.log("Processing", attachmentType, "attachment:", fileName);
           
-          // Check if file already exists
-          var existingFiles = ticketFolder.getFilesByName(fileName);
+          var file;
+          var finalFileName;
           
-          if (existingFiles.hasNext()) {
-            // File already exists
-            var existingFile = existingFiles.next();
-            var existingSize = existingFile.getSize();
-            var newSize = attachmentData.size;
-            
-            console.log("File exists:", fileName, "- existing size:", existingSize, "new size:", newSize);
-            
-            if (existingSize === newSize) {
-              // Same size, likely duplicate - skip
-              console.log("Skipping duplicate file:", fileName);
-              skippedCount++;
-              skippedFiles.push(fileName);
-              continue;
-            } else {
-              // Different size, create with timestamp
-              var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
-              var fileExtension = fileName.lastIndexOf('.') > -1 ? fileName.substring(fileName.lastIndexOf('.')) : '';
-              var baseName = fileName.lastIndexOf('.') > -1 ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
-              var newFileName = baseName + "_" + timestamp + fileExtension;
-              
-              console.log("Creating file with new name:", newFileName);
-              var file = ticketFolder.createFile(attachmentData.attachment);
-              file.setName(newFileName);
-              savedCount++;
-              savedFiles.push(newFileName);
-            }
-          } else {
-            // File doesn't exist, save normally
-            console.log("Saving new file:", fileName);
-            var file = ticketFolder.createFile(attachmentData.attachment);
+          if (attachmentType === 'google_docs') {
+            // Handle Google Docs links
+            console.log("Copying Google Doc to folder:", fileName);
+            file = copyGoogleDocToFolder({
+              title: attachmentData.name,
+              url: attachmentData.url,
+              type: attachmentData.docType,
+              emailSubject: attachmentData.emailSubject
+            }, ticketFolder);
+            finalFileName = file.getName();
             savedCount++;
-            savedFiles.push(file.getName());
+            savedFiles.push(finalFileName);
+            console.log("Successfully copied Google Doc:", finalFileName);
+            
+          } else {
+            // Handle regular attachments
+            // Check if file already exists
+            var existingFiles = ticketFolder.getFilesByName(fileName);
+            
+            if (existingFiles.hasNext()) {
+              // File already exists
+              var existingFile = existingFiles.next();
+              var existingSize = existingFile.getSize();
+              var newSize = attachmentData.size;
+              
+              console.log("File exists:", fileName, "- existing size:", existingSize, "new size:", newSize);
+              
+              if (existingSize === newSize) {
+                // Same size, likely duplicate - skip
+                console.log("Skipping duplicate file:", fileName);
+                skippedCount++;
+                skippedFiles.push(fileName);
+                continue;
+              } else {
+                // Different size, create with timestamp
+                var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
+                var fileExtension = fileName.lastIndexOf('.') > -1 ? fileName.substring(fileName.lastIndexOf('.')) : '';
+                var baseName = fileName.lastIndexOf('.') > -1 ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+                var newFileName = baseName + "_" + timestamp + fileExtension;
+                
+                console.log("Creating file with new name:", newFileName);
+                file = ticketFolder.createFile(attachmentData.attachment);
+                file.setName(newFileName);
+                finalFileName = newFileName;
+                savedCount++;
+                savedFiles.push(finalFileName);
+              }
+            } else {
+              // File doesn't exist, save normally
+              console.log("Saving new file:", fileName);
+              file = ticketFolder.createFile(attachmentData.attachment);
+              finalFileName = file.getName();
+              savedCount++;
+              savedFiles.push(finalFileName);
+            }
           }
           
-          console.log("Processed:", fileName);
+          console.log("Processed:", fileName, "->", finalFileName);
         } catch (saveError) {
-          console.error("Error saving attachment", attachmentData.name, ":", saveError);
+          console.error("Error saving", attachmentData.type || 'regular', "attachment", attachmentData.name, ":", saveError);
         }
       }
       
@@ -1490,14 +2286,27 @@ function buildAddOn(e) {
       console.log("Files saved:", savedFiles);
       console.log("Files skipped:", skippedFiles);
       
-      // Enhanced notification message with detailed PMO info
+      // Enhanced notification message with detailed PMO info and subfolder path
       var notificationText = "✅ Attachment Save Complete!\n\n";
       
       // PMO folder information
       if (pmoResult.created) {
         notificationText += "📁 New PMO folder created: " + folderResult.name + "\n";
       } else {
-        notificationText += "📁 Saved to existing PMO folder: " + folderResult.name + "\n";
+        notificationText += "📁 PMO project folder: " + folderResult.name + "\n";
+      }
+      
+      // Subfolder information
+      if (actualFolderPath && actualFolderPath !== "Project Root") {
+        notificationText += "📂 Subfolder: " + actualFolderPath + "\n";
+        if (targetFolderResult.created) {
+          notificationText += "🆕 Created new subfolder(s): " + targetFolderResult.createdFolders.join(", ") + "\n";
+        }
+        if (targetFolderResult.fallbackUsed) {
+          notificationText += "⚠️ Fallback: " + targetFolderResult.warning + "\n";
+        }
+      } else {
+        notificationText += "📂 Location: Project Root\n";
       }
       
       // File statistics
@@ -1546,7 +2355,7 @@ function buildAddOn(e) {
     
     try {
       var userProperties = PropertiesService.getUserProperties();
-      var settingsJson = userProperties.getProperty('JIRA_SETTINGS');
+      var settingsJson = userProperties.getProperty(getSettingsStorageKey());
       
       console.log("Settings JSON from storage:", settingsJson ? "found" : "not found");
       
@@ -1574,6 +2383,7 @@ function buildAddOn(e) {
         console.log("- Jira Token:", settings.jiraToken ? "configured (length: " + settings.jiraToken.length + ")" : "NOT SET");
         console.log("- JQL Query:", settings.jqlQuery ? "configured" : "NOT SET");
         console.log("- PMO Webhook URL:", settings.pmoWebhookUrl ? "configured" : "NOT SET");
+        console.log("- Trimble Auth Token:", settings.trimbleAuthToken ? "configured (length: " + settings.trimbleAuthToken.length + ")" : "NOT SET");
         console.log("- PMO Timeout:", settings.pmoTimeout);
         console.log("- PMO Retry Attempts:", settings.pmoRetryAttempts);
         console.log("- Using default PMO URL:", settings.pmoWebhookUrl === getDefaultPMOWebhookUrl());
@@ -1603,7 +2413,7 @@ function buildAddOn(e) {
   function setUserSettings(settings) {
     try {
       var userProperties = PropertiesService.getUserProperties();
-      userProperties.setProperty('JIRA_SETTINGS', JSON.stringify(settings));
+      userProperties.setProperty(getSettingsStorageKey(), JSON.stringify(settings));
       console.log("Settings saved to user properties");
     } catch (error) {
       console.error("Error setting user settings:", error);
@@ -1658,12 +2468,172 @@ function buildAddOn(e) {
     }
   }
   
+  // ===== FOLDER ACCESS REQUEST CARD =====
+  
+  /**
+   * Build a card for requesting folder access
+   * @param {string} ticketKey - The Jira ticket key
+   * @param {string} folderId - The Google Drive folder ID
+   * @param {string} errorMessage - The detailed error message
+   * @returns {Card} A card with request access button
+   */
+  function buildRequestAccessCard(ticketKey, folderId, errorMessage) {
+    var card = CardService.newCardBuilder()
+      .setHeader(CardService.newCardHeader()
+        .setTitle("🔒 Folder Access Required")
+        .setSubtitle(ticketKey));
+    
+    var section = CardService.newCardSection();
+    
+    // Error explanation
+    var errorText = CardService.newTextParagraph()
+      .setText("<b>⚠️ Cannot Access Project Folder</b><br><br>" +
+               "The PMO system found the project folder, but you don't have permission to access it yet.");
+    section.addWidget(errorText);
+    
+    // Folder info
+    var folderInfo = CardService.newKeyValue()
+      .setTopLabel("Project Ticket")
+      .setContent(ticketKey)
+      .setIcon(CardService.Icon.TICKET);
+    section.addWidget(folderInfo);
+    
+    var folderIdInfo = CardService.newKeyValue()
+      .setTopLabel("Folder ID")
+      .setContent(folderId)
+      .setIcon(CardService.Icon.DESCRIPTION);
+    section.addWidget(folderIdInfo);
+    
+    // Technical error (collapsible)
+    var technicalError = CardService.newTextParagraph()
+      .setText("<font color=\"#888888\"><i>Technical details: " + errorMessage + "</i></font>");
+    section.addWidget(technicalError);
+    
+    card.addSection(section);
+    
+    // Action section
+    var actionSection = CardService.newCardSection()
+      .setHeader("🔧 What to Do");
+    
+    var instructions = CardService.newTextParagraph()
+      .setText("Click the button below to open the folder in Google Drive and request access:");
+    actionSection.addWidget(instructions);
+    
+    // Request access button with direct folder URL
+    var folderUrl = "https://drive.google.com/drive/folders/" + folderId;
+    var requestAccessButton = CardService.newTextButton()
+      .setText("🔗 Open Folder & Request Access")
+      .setOpenLink(CardService.newOpenLink()
+        .setUrl(folderUrl)
+        .setOpenAs(CardService.OpenAs.FULL_SIZE)
+        .setOnClose(CardService.OnClose.NOTHING));
+    
+    var buttonSet = CardService.newButtonSet()
+      .addButton(requestAccessButton);
+    actionSection.addWidget(buttonSet);
+    
+    // Additional instructions
+    var additionalHelp = CardService.newTextParagraph()
+      .setText("<br><b>After requesting access:</b><br>" +
+               "• The folder owner will receive your request<br>" +
+               "• You'll get an email when access is granted<br>" +
+               "• Come back and try saving again<br><br>" +
+               "<b>Alternative:</b> Contact your project manager for immediate access");
+    actionSection.addWidget(additionalHelp);
+    
+    card.addSection(actionSection);
+    
+    return card.build();
+  }
+  
+  // ===== SUBFOLDER ERROR HANDLING =====
+  
+  /**
+   * Get enhanced error message for PMO errors with subfolder context
+   * @param {string} error - The error message
+   * @param {string} ticketKey - The Jira ticket key
+   * @param {string} subfolderPath - The subfolder path (optional)
+   * @returns {string} User-friendly error message
+   */
+  function getPMOSubfolderErrorMessage(error, ticketKey, subfolderPath) {
+    var baseError = getPMOErrorMessage(error, ticketKey); // Use existing function
+    
+    if (subfolderPath && subfolderPath.trim() !== "") {
+      var subfolderError = baseError + "\n\n📁 Additional Context:\n";
+      subfolderError += "• Target subfolder: " + subfolderPath + "\n";
+      subfolderError += "• Subfolder creation was blocked by PMO access issue\n";
+      subfolderError += "• Files will be saved to project root once PMO access is restored";
+      return subfolderError;
+    }
+    
+    return baseError;
+  }
+  
+  /**
+   * Get error message for subfolder creation failures
+   * @param {string} error - The error message
+   * @param {Folder} projectFolder - The project root folder
+   * @param {string} subfolderPath - The subfolder path
+   * @returns {string} User-friendly error message
+   */
+  function getSubfolderCreationErrorMessage(error, projectFolder, subfolderPath) {
+    var errorMsg = "❌ Cannot create subfolder in PMO project folder\n\n";
+    errorMsg += "📁 Project Folder: " + projectFolder.getName() + "\n";
+    errorMsg += "🎯 Subfolder Path: " + subfolderPath + "\n";
+    errorMsg += "📋 Technical Error: " + error + "\n\n";
+    
+    errorMsg += "🔧 Possible Solutions:\n";
+    errorMsg += "• Check if you have write permissions to the project folder\n";
+    errorMsg += "• Try saving to 'Project Root' as a fallback\n";
+    errorMsg += "• Contact project admin if folder permissions are restricted\n\n";
+    
+    errorMsg += "💡 Tip: You can still save attachments by selecting 'Project Root'";
+    
+    return errorMsg;
+  }
+  
   // ===== PMO INTEGRATION FUNCTIONS =====
+  
+  /**
+   * Internal function to make PMO webhook request (for retry logic)
+   */
+  function makePMOWebhookRequest(ticketKey, webhookUrl, timeout) {
+    var payload = JSON.stringify({"text": ticketKey});
+    console.log("Sending PMO webhook request:");
+    console.log("- Method: POST");
+    console.log("- URL:", webhookUrl);
+    console.log("- Payload:", payload);
+    console.log("- Timeout:", timeout + "ms");
+    
+    var requestStartTime = new Date().getTime();
+    
+    // Stage 1: Get OAuth token from Trimble auth server
+    console.log("=== STAGE 2: PMO WEBHOOK CALL WITH BEARER TOKEN ===");
+    var oauthToken = getTrimbleOAuthToken();
+    
+    var response = UrlFetchApp.fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + oauthToken
+      },
+      payload: payload,
+      muteHttpExceptions: true,
+      timeout: timeout
+    });
+    
+    var requestDuration = new Date().getTime() - requestStartTime;
+    console.log("PMO webhook request completed in:", requestDuration + "ms");
+    console.log("PMO webhook response code:", response.getResponseCode());
+    console.log("PMO webhook response headers:", JSON.stringify(response.getAllHeaders()));
+    
+    return response;
+  }
   
   function getPMOProjectFolder(ticketKey) {
     try {
       var settings = getUserSettings();
-      var webhookUrl = settings.pmoWebhookUrl || getDefaultPMOWebhookUrl();
+      var webhookUrl = getPMOWebhookURL();
       var maxRetries = settings.pmoRetryAttempts || 2;
       var timeout = settings.pmoTimeout || 10000;
       
@@ -1675,6 +2645,10 @@ function buildAddOn(e) {
       console.log("- Max retries:", maxRetries);  
       console.log("- Timeout (ms):", timeout);
       console.log("- Using default URL:", webhookUrl === getDefaultPMOWebhookUrl());
+      
+      // Check OAuth token status
+      var tokenStatus = getOAuthTokenStatus();
+      console.log("OAuth token status:", tokenStatus.message);
       
       if (!webhookUrl || webhookUrl.trim() === '') {
         console.error("CRITICAL: PMO webhook URL is empty or undefined!");
@@ -1688,31 +2662,34 @@ function buildAddOn(e) {
         console.log("PMO request attempt", attempt, "of", maxRetries);
         
         try {
-          var payload = JSON.stringify({"text": ticketKey});
-          console.log("Sending PMO webhook request:");
-          console.log("- Method: POST");
-          console.log("- URL:", webhookUrl);
-          console.log("- Payload:", payload);
-          console.log("- Timeout:", timeout + "ms");
+          var response = makePMOWebhookRequest(ticketKey, webhookUrl, timeout);
+          var responseCode = response.getResponseCode();
           
-          var requestStartTime = new Date().getTime();
+          // Check for authentication errors (token expiration)
+          if (responseCode === 401 || responseCode === 403) {
+            console.log("🔄 Detected authentication error (code " + responseCode + "), may be expired token");
+            
+            // Try with fresh token (only once per attempt to avoid infinite loops)
+            try {
+              console.log("🔄 Clearing cached token and retrying with fresh token...");
+              clearCachedOAuthToken();
+              var retryResponse = makePMOWebhookRequest(ticketKey, webhookUrl, timeout);
+              
+              if (retryResponse.getResponseCode() === 200) {
+                console.log("✅ Retry with fresh token succeeded");
+                response = retryResponse; // Use the successful retry response
+                responseCode = 200;
+              } else {
+                console.log("❌ Retry with fresh token also failed:", retryResponse.getResponseCode());
+                // Fall through to regular error handling
+              }
+            } catch (retryError) {
+              console.error("❌ Token refresh retry failed:", retryError.message);
+              // Fall through to regular error handling
+            }
+          }
           
-          var response = UrlFetchApp.fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            payload: payload,
-            muteHttpExceptions: true,
-            timeout: timeout
-          });
-          
-          var requestDuration = new Date().getTime() - requestStartTime;
-          console.log("PMO webhook request completed in:", requestDuration + "ms");
-          console.log("PMO webhook response code:", response.getResponseCode());
-          console.log("PMO webhook response headers:", JSON.stringify(response.getAllHeaders()));
-          
-          if (response.getResponseCode() === 200) {
+          if (responseCode === 200) {
             var responseText = response.getContentText();
             console.log("PMO webhook response:", responseText);
             
@@ -2265,6 +3242,24 @@ function buildAddOn(e) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
   
+  /**
+   * Get appropriate icon for Google Docs type
+   * @param {string} docType - The type of Google Doc (docs, sheets, slides, etc.)
+   * @returns {string} Emoji icon for the doc type
+   */
+  function getGoogleDocsIcon(docType) {
+    var icons = {
+      'docs': '📄',      // Document icon
+      'sheets': '📊',    // Spreadsheet icon  
+      'slides': '📽️',    // Presentation icon
+      'forms': '📝',     // Form icon
+      'drive': '📁',     // Generic drive file icon
+      'drawings': '🎨'   // Drawing icon
+    };
+    
+    return icons[docType] || '🔗'; // Default link icon for unknown types
+  }
+  
   function getOrCreateFolder(folderName, parentFolder) {
     var parent = parentFolder || DriveApp.getRootFolder();
     var folders = parent.getFoldersByName(folderName);
@@ -2273,6 +3268,237 @@ function buildAddOn(e) {
       return folders.next();
     } else {
       return parent.createFolder(folderName);
+    }
+  }
+  
+  // ===== SUBFOLDER MANAGEMENT FOR PMO PROJECTS =====
+  
+  /**
+   * Get standardized project subfolder configuration
+   * @returns {Array} Array of subfolder definitions
+   */
+  function getProjectSubfolderConfig() {
+    return [
+      {
+        name: "01_System_Design",
+        icon: "📁",
+        description: "System architecture, diagrams, technical specifications"
+      },
+      {
+        name: "02_Meet_Recordings", 
+        icon: "📁",
+        description: "Meeting recordings, session notes, call summaries"
+      },
+      {
+        name: "03_Correspondence",
+        icon: "📁", 
+        description: "Email threads, communications, external correspondence"
+      },
+      {
+        name: "04_Project_Documentation",
+        icon: "📁",
+        description: "General project documents, reports, deliverables"
+      }
+    ];
+  }
+  
+  /**
+   * Create or access project subfolder with support for nested paths
+   * @param {Folder} parentFolder - The PMO project root folder
+   * @param {string} subfolderPath - Path like "01_System_Design" or "04_Project_Documentation/Project_Management"
+   * @returns {Object} Result object with folder info
+   */
+  function getOrCreateProjectSubfolder(parentFolder, subfolderPath) {
+    try {
+      console.log("=== SUBFOLDER CREATION/ACCESS ===");
+      console.log("Parent folder:", parentFolder.getName(), "ID:", parentFolder.getId());
+      console.log("Requested subfolder path:", subfolderPath);
+      
+      if (!subfolderPath || subfolderPath.trim() === "") {
+        // Return parent folder for root level saves
+        console.log("No subfolder specified, using project root");
+        return {
+          success: true,
+          folder: parentFolder,
+          path: "Project Root",
+          created: false
+        };
+      }
+      
+      // Split path for nested folders (e.g., "04_Project_Documentation/Project_Management")
+      var pathParts = subfolderPath.split('/');
+      var currentFolder = parentFolder;
+      var createdFolders = [];
+      var fullPath = "";
+      
+      for (var i = 0; i < pathParts.length; i++) {
+        var folderName = pathParts[i].trim();
+        if (!folderName) continue;
+        
+        fullPath += (fullPath ? "/" : "") + folderName;
+        console.log("Processing folder level", (i + 1) + ":", folderName);
+        
+        // Check if folder already exists
+        var existingFolders = currentFolder.getFoldersByName(folderName);
+        
+        if (existingFolders.hasNext()) {
+          currentFolder = existingFolders.next();
+          console.log("✓ Found existing folder:", folderName);
+          
+          // Check for duplicates (multiple folders with same name)
+          if (existingFolders.hasNext()) {
+            console.warn("⚠ WARNING: Multiple folders found with name:", folderName);
+          }
+        } else {
+          // Create new folder
+          currentFolder = currentFolder.createFolder(folderName);
+          createdFolders.push(folderName);
+          console.log("✓ Created new folder:", folderName);
+        }
+      }
+      
+      console.log("=== SUBFOLDER RESULT ===");
+      console.log("Final path:", fullPath);
+      console.log("Created folders:", createdFolders.length > 0 ? createdFolders.join(", ") : "None");
+      console.log("Final folder ID:", currentFolder.getId());
+      
+      return {
+        success: true,
+        folder: currentFolder,
+        path: fullPath,
+        created: createdFolders.length > 0,
+        createdFolders: createdFolders
+      };
+      
+    } catch (error) {
+      console.error("=== SUBFOLDER CREATION ERROR ===");
+      console.error("Error:", error.message);
+      console.error("Stack:", error.stack);
+      
+      return {
+        success: false,
+        error: "Failed to create/access subfolder: " + error.message,
+        path: subfolderPath
+      };
+    }
+  }
+  
+  /**
+   * Validate subfolder selection against allowed paths
+   * @param {string} subfolderPath - The subfolder path to validate
+   * @returns {Object} Validation result
+   */
+  function validateSubfolderSelection(subfolderPath) {
+    // Define allowed subfolder patterns
+    var allowedPaths = [
+      "", // Project root
+      "01_System_Design",
+      "02_Meet_Recordings", 
+      "03_Correspondence",
+      "04_Project_Documentation",
+      "04_Project_Documentation/Project_Management",
+      "04_Project_Documentation/Carrier_Onboarding"
+    ];
+    
+    if (!subfolderPath || subfolderPath.trim() === "") {
+      return { valid: true, path: "", sanitized: "" };
+    }
+    
+    // Check against allowed paths
+    if (allowedPaths.indexOf(subfolderPath) !== -1) {
+      return { 
+        valid: true, 
+        path: subfolderPath,
+        sanitized: subfolderPath
+      };
+    }
+    
+    // Sanitize path - remove invalid characters
+    var sanitized = subfolderPath
+      .replace(/[<>:"|?*]/g, '_') // Replace invalid chars
+      .replace(/\.\./g, '_') // Prevent directory traversal
+      .replace(/^\/+|\/+$/g, '') // Remove leading/trailing slashes
+      .substring(0, 100); // Limit length
+    
+    console.log("⚠ Subfolder path sanitized:", subfolderPath, "→", sanitized);
+    
+    return {
+      valid: false,
+      path: subfolderPath,
+      sanitized: sanitized,
+      warning: "Path was not in predefined list and was sanitized"
+    };
+  }
+  
+  /**
+   * Handle subfolder creation failure with graceful degradation
+   * @param {Folder} projectFolder - The project root folder
+   * @param {string} subfolderPath - The failed subfolder path
+   * @param {Object} errorDetails - Error information
+   * @returns {Object} Fallback result
+   */
+  function handleSubfolderCreationFailure(projectFolder, subfolderPath, errorDetails) {
+    console.log("=== SUBFOLDER FALLBACK STRATEGY ===");
+    console.log("Original path:", subfolderPath);
+    console.log("Error:", errorDetails.error);
+    
+    // Strategy 1: Try simplified folder name (remove nesting, use only first level)
+    if (subfolderPath.indexOf("/") !== -1) {
+      var simplifiedPath = subfolderPath.split("/")[0]; // Use only first level
+      console.log("Trying simplified path:", simplifiedPath);
+      
+      var fallbackResult = getOrCreateProjectSubfolder(projectFolder, simplifiedPath);
+      if (fallbackResult.success) {
+        console.log("✓ Fallback successful with simplified path");
+        return {
+          success: true,
+          folder: fallbackResult.folder,
+          fallbackUsed: "simplified_path",
+          originalPath: subfolderPath,
+          actualPath: simplifiedPath,
+          warning: "Used simplified folder path due to nesting issue"
+        };
+      }
+    }
+    
+    // Strategy 2: Fall back to project root
+    console.log("All subfolder creation failed, using project root");
+    return {
+      success: true,
+      folder: projectFolder,
+      fallbackUsed: "project_root",
+      originalPath: subfolderPath,
+      actualPath: "Project Root",
+      warning: "Saved to project root due to subfolder creation error"
+    };
+  }
+  
+  /**
+   * Get user preferences for subfolder feature
+   * @returns {Object} User preferences
+   */
+  function getUserSubfolderPreferences() {
+    var userProperties = PropertiesService.getUserProperties();
+    var preferences = {
+      enableSubfolderSelection: userProperties.getProperty('ENABLE_SUBFOLDER_SELECTION') !== 'false', // Default true
+      defaultSubfolder: userProperties.getProperty('DEFAULT_SUBFOLDER') || '',
+      showSubfolderTooltips: userProperties.getProperty('SHOW_SUBFOLDER_TOOLTIPS') !== 'false'
+    };
+    
+    return preferences;
+  }
+  
+  /**
+   * Check if enhanced UI should be used
+   * @returns {boolean} True if enhanced UI should be shown
+   */
+  function shouldUseEnhancedUI() {
+    try {
+      var preferences = getUserSubfolderPreferences();
+      return preferences.enableSubfolderSelection;
+    } catch (error) {
+      console.log("Error loading preferences, defaulting to enhanced UI:", error);
+      return true; // Default to enhanced UI
     }
   }
   
@@ -2358,6 +3584,372 @@ function buildAddOn(e) {
     }
   }
   
+  // ===== GOOGLE DOCS LINK EXTRACTION FUNCTIONS =====
+  
+  /**
+   * Extract Google Docs links from email message content
+   * @param {GmailMessage} message - The Gmail message to analyze
+   * @returns {Array} Array of Google Docs link objects
+   */
+  function extractGoogleDocsLinks(message) {
+    try {
+      console.log("Extracting Google Docs links from message...");
+      
+      var links = [];
+      var htmlBody = '';
+      var plainBody = '';
+      
+      // Get message content
+      try {
+        htmlBody = message.getBody() || '';
+        plainBody = message.getPlainBody() || '';
+      } catch (e) {
+        console.log("Could not get message body:", e.message);
+        return links;
+      }
+      
+      // Define Google service URL patterns
+      var patterns = [
+        // Google Docs
+        {
+          regex: /https:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9-_]+)/g,
+          type: 'docs',
+          defaultTitle: 'Google Doc'
+        },
+        // Google Sheets  
+        {
+          regex: /https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/g,
+          type: 'sheets',
+          defaultTitle: 'Google Sheet'
+        },
+        // Google Slides
+        {
+          regex: /https:\/\/docs\.google\.com\/presentation\/d\/([a-zA-Z0-9-_]+)/g,
+          type: 'slides', 
+          defaultTitle: 'Google Slides'
+        },
+        // Google Forms
+        {
+          regex: /https:\/\/docs\.google\.com\/forms\/d\/([a-zA-Z0-9-_]+)/g,
+          type: 'forms',
+          defaultTitle: 'Google Form'
+        },
+        // Google Drive files (generic)
+        {
+          regex: /https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9-_]+)/g,
+          type: 'drive',
+          defaultTitle: 'Google Drive File'
+        }
+      ];
+      
+      // Search in both HTML and plain text
+      var contentToSearch = [
+        { content: htmlBody, isHtml: true },
+        { content: plainBody, isHtml: false }
+      ];
+      
+      var foundUrls = new Set(); // Prevent duplicates
+      
+      contentToSearch.forEach(function(contentObj) {
+        patterns.forEach(function(pattern) {
+          var matches;
+          pattern.regex.lastIndex = 0; // Reset regex state
+          
+          while ((matches = pattern.regex.exec(contentObj.content)) !== null) {
+            var fullUrl = matches[0];
+            var fileId = matches[1];
+            
+            // Skip if we already found this URL
+            if (foundUrls.has(fullUrl)) {
+              continue;
+            }
+            foundUrls.add(fullUrl);
+            
+            // Try to extract title from HTML context
+            var title = extractTitleFromContext(contentObj.content, fullUrl, contentObj.isHtml);
+            if (!title) {
+              title = pattern.defaultTitle;
+            }
+            
+            // Ensure unique title by adding file ID if needed
+            var finalTitle = title;
+            var titleExists = links.some(function(link) { return link.title === finalTitle; });
+            if (titleExists) {
+              finalTitle = title + " (" + fileId.substring(0, 8) + "...)";
+            }
+            
+            links.push({
+              url: fullUrl,
+              fileId: fileId,
+              title: finalTitle,
+              type: pattern.type
+            });
+            
+            console.log("Found Google " + pattern.type + " link:", finalTitle, "->", fullUrl);
+          }
+        });
+      });
+      
+      console.log("Extracted", links.length, "Google Docs links from message");
+      return links;
+      
+    } catch (error) {
+      console.error("Error extracting Google Docs links:", error.message);
+      return [];
+    }
+  }
+  
+  /**
+   * Try to extract title from the context around a Google Docs URL
+   * @param {string} content - The content to search in
+   * @param {string} url - The URL to find context for
+   * @param {boolean} isHtml - Whether the content is HTML
+   * @returns {string|null} Extracted title or null
+   */
+  function extractTitleFromContext(content, url, isHtml) {
+    try {
+      var urlIndex = content.indexOf(url);
+      if (urlIndex === -1) return null;
+      
+      if (isHtml) {
+        // For HTML content, look for link text or nearby text
+        var beforeUrl = content.substring(Math.max(0, urlIndex - 200), urlIndex);
+        var afterUrl = content.substring(urlIndex + url.length, Math.min(content.length, urlIndex + url.length + 200));
+        
+        // Look for <a> tag with text
+        var linkRegex = /<a[^>]*href[^>]*>([^<]+)<\/a>/i;
+        var contextRegex = />([^<]{2,50})<.*?href.*?google\.com/i;
+        var reverseContextRegex = /href.*?google\.com.*?>([^<]{2,50})</i;
+        
+        var match = beforeUrl.match(contextRegex) || afterUrl.match(reverseContextRegex) || 
+                   (beforeUrl + url + afterUrl).match(linkRegex);
+        
+        if (match && match[1]) {
+          var title = match[1].trim();
+          // Clean up common HTML artifacts
+          title = title.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          if (title.length > 3 && title.length < 100) {
+            return title;
+          }
+        }
+      } else {
+        // For plain text, look for text near the URL
+        var beforeUrl = content.substring(Math.max(0, urlIndex - 100), urlIndex);
+        var afterUrl = content.substring(urlIndex + url.length, Math.min(content.length, urlIndex + url.length + 100));
+        
+        // Look for text patterns that might be titles
+        var patterns = [
+          /([^\n\r]{5,80})\s*$/,  // Text before URL on same line
+          /^\s*([^\n\r]{5,80})/   // Text after URL on same line
+        ];
+        
+        for (var i = 0; i < patterns.length; i++) {
+          var match = (i === 0 ? beforeUrl : afterUrl).match(patterns[i]);
+          if (match && match[1]) {
+            var title = match[1].trim();
+            // Skip if it looks like part of a URL or email
+            if (!title.includes('http') && !title.includes('@') && title.length < 80) {
+              return title;
+            }
+          }
+        }
+      }
+      
+      return null;
+      
+    } catch (error) {
+      console.error("Error extracting title from context:", error.message);
+      return null;
+    }
+  }
+  
+  /**
+   * Copy a Google Doc to the target folder while preserving its format
+   * @param {Object} docLink - The Google Docs link object
+   * @param {Folder} targetFolder - The folder to copy the Google Doc to
+   * @returns {File} The copied Google Doc file
+   */
+  function copyGoogleDocToFolder(docLink, targetFolder) {
+    try {
+      console.log("Copying Google Doc to target folder:", docLink.title);
+      
+      // Extract document ID from Google Docs URL
+      var docId = extractGoogleDocId(docLink.url);
+      if (!docId) {
+        console.error("Could not extract document ID from URL:", docLink.url);
+        // Fallback to shortcut creation if ID extraction fails
+        return createFallbackShortcut(docLink, targetFolder);
+      }
+      
+      console.log("Extracted document ID:", docId);
+      
+      // Get the Google Doc file from Drive
+      var driveFile;
+      try {
+        driveFile = DriveApp.getFileById(docId);
+      } catch (driveError) {
+        console.error("Could not access Google Drive file:", driveError.message);
+        // Fallback to shortcut creation if file access fails
+        return createFallbackShortcut(docLink, targetFolder);
+      }
+      
+      // Use email subject as filename if available, otherwise fall back to original name
+      var fileName;
+      if (docLink.emailSubject && docLink.emailSubject.trim() !== '') {
+        fileName = sanitizeFileName(docLink.emailSubject);
+        console.log("Using email subject as filename:", fileName);
+      } else {
+        fileName = docLink.title || driveFile.getName();
+        console.log("Using original Google Doc name:", fileName);
+      }
+      
+      // Check if a file with the same name already exists in the target folder
+      var existingFiles = targetFolder.getFilesByName(fileName);
+      if (existingFiles.hasNext()) {
+        var existingFile = existingFiles.next();
+        
+        // Check if it's the same file (same ID)
+        if (existingFile.getId() === docId) {
+          console.log("Google Doc already exists in target folder:", fileName);
+          return existingFile;
+        }
+        
+        // Different file with same name - add timestamp to avoid conflict
+        var timestamp = new Date().getTime();
+        var nameParts = fileName.split('.');
+        if (nameParts.length > 1) {
+          fileName = nameParts.slice(0, -1).join('.') + '_' + timestamp + '.' + nameParts[nameParts.length - 1];
+        } else {
+          fileName = fileName + '_' + timestamp;
+        }
+        console.log("Renamed to avoid conflict:", fileName);
+      }
+      
+      // Create a copy of the Google Doc in the target folder
+      var copiedFile;
+      try {
+        copiedFile = driveFile.makeCopy(fileName, targetFolder);
+        console.log("Successfully copied Google Doc to target folder as:", fileName);
+        return copiedFile;
+        
+      } catch (copyError) {
+        console.error("Could not copy Google Doc:", copyError.message);
+        // Fallback to shortcut creation if copy fails
+        return createFallbackShortcut(docLink, targetFolder);
+      }
+      
+    } catch (error) {
+      console.error("Error copying Google Doc:", error.message);
+      // Fallback to shortcut creation
+      return createFallbackShortcut(docLink, targetFolder);
+    }
+  }
+
+  // Helper function to sanitize email subject for use as filename
+  function sanitizeFileName(subject) {
+    try {
+      if (!subject || typeof subject !== 'string') {
+        return 'Google Doc';
+      }
+      
+      // Remove or replace characters that are not allowed in filenames
+      var sanitized = subject
+        .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid filename characters
+        .replace(/\s+/g, ' ')          // Replace multiple spaces with single space
+        .trim();                       // Remove leading/trailing whitespace
+      
+      // Limit length to reasonable filename size
+      if (sanitized.length > 100) {
+        sanitized = sanitized.substring(0, 100).trim();
+      }
+      
+      // Ensure we have a non-empty filename
+      if (sanitized === '') {
+        return 'Google Doc';
+      }
+      
+      console.log("Sanitized filename:", sanitized);
+      return sanitized;
+      
+    } catch (error) {
+      console.error("Error sanitizing filename:", error.message);
+      return 'Google Doc';
+    }
+  }
+
+  // Helper function to extract Google Doc ID from URL
+  function extractGoogleDocId(url) {
+    try {
+      // Handle different Google Docs URL formats
+      var patterns = [
+        /\/document\/d\/([a-zA-Z0-9-_]+)/,  // Documents
+        /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/, // Sheets  
+        /\/presentation\/d\/([a-zA-Z0-9-_]+)/, // Slides
+        /\/file\/d\/([a-zA-Z0-9-_]+)/,        // Generic Drive files
+        /id=([a-zA-Z0-9-_]+)/                 // ID parameter format
+      ];
+      
+      for (var i = 0; i < patterns.length; i++) {
+        var match = url.match(patterns[i]);
+        if (match && match[1]) {
+          return match[1];
+        }
+      }
+      
+      console.log("No matching pattern found for URL:", url);
+      return null;
+    } catch (error) {
+      console.error("Error extracting Google Doc ID:", error.message);
+      return null;
+    }
+  }
+
+
+  // Fallback function to create shortcut if download fails
+  function createFallbackShortcut(docLink, targetFolder) {
+    try {
+      console.log("Creating fallback shortcut for:", docLink.title);
+      
+      // Create a shortcut file content pointing to the Google Doc
+      var shortcutContent = '[InternetShortcut]\nURL=' + docLink.url + '\n';
+      
+      // Use email subject as filename if available, otherwise use original title
+      var baseName;
+      if (docLink.emailSubject && docLink.emailSubject.trim() !== '') {
+        baseName = sanitizeFileName(docLink.emailSubject);
+        console.log("Using email subject for shortcut filename:", baseName);
+      } else {
+        baseName = docLink.title || 'Google Doc';
+        console.log("Using original title for shortcut filename:", baseName);
+      }
+      
+      var fileName = baseName + '.url';
+      
+      // Handle duplicate names
+      var existingFiles = targetFolder.getFilesByName(fileName);
+      if (existingFiles.hasNext()) {
+        var timestamp = new Date().getTime();
+        var nameParts = fileName.split('.');
+        if (nameParts.length > 1) {
+          fileName = nameParts.slice(0, -1).join('.') + '_' + timestamp + '.' + nameParts[nameParts.length - 1];
+        } else {
+          fileName = fileName + '_' + timestamp;
+        }
+      }
+      
+      // Create the shortcut file
+      var blob = Utilities.newBlob(shortcutContent, 'text/plain', fileName);
+      var file = targetFolder.createFile(blob);
+      
+      console.log("Created fallback shortcut file:", fileName);
+      return file;
+      
+    } catch (error) {
+      console.error("Error creating fallback shortcut:", error.message);
+      throw error;
+    }
+  }
+
   // ===== ATTACHMENT SELECTION MEMORY FUNCTIONS =====
   
   function storeAttachmentSelections(threadId, selectionState) {
