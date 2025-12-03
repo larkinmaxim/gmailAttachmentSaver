@@ -7,15 +7,7 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 - **Gmail Integration**: Contextual Gmail add-on that appears when viewing emails with attachments
 - **Jira Integration**: Connects to Jira to fetch your active Technical Project Manager tickets
 - **Smart Folder Lookup**: Automatically parses Jira ticket summaries to find/create customer and project folders
-- **Subfolder Organization**: Save attachments to organized subfolders:
-
-  📁 01_System_Design
-  📁 02_Meet_Recordings
-  📁 03_Correspondence
-  📁 04_Project_Documentation
-  ├──📁 Project_Management
-  ├──📁 Carrier_Onboarding
-
+- **Subfolder Organization**: Save attachments to organized subfolders
 - **Attachment Selection**: Select specific attachments to save, with memory across sessions
 - **Duplicate Handling**: Intelligently handles duplicate files by checking size and adding timestamps when needed
 - **Shared Drive Support**: Full support for Google Shared Drives using Advanced Drive API v3
@@ -72,16 +64,16 @@ Example: 620254 - Frosta AG | TP Essential | Ocean Visibility and TPE
 
 **Folder Structure:**
 ```
-Customers Folder/
-└── 620254 - Frosta AG/
-    └── CXPRODELIVERY-1234/
-        ├── 01_System_Design/
-        ├── 02_Meet_Recordings/
-        ├── 03_Correspondence/
-        ├── 04_Project_Documentation/
-        │   ├── Project_Management/
-        │   ├── Custom_Bundle/
-        │   └── Carrier_Onboarding/
+📁 Customers Folder/
+└── 📁 620254 - Frosta AG/
+    └── 📁 CXPRODELIVERY-1234/
+        ├── 📁 01_System_Design/
+        ├── 📁 02_Meet_Recordings/
+        ├── 📁 03_Correspondence/
+        ├── 📁 04_Project_Documentation/
+        │   ├── 📁 Project_Management/
+        │   ├── 📁 Custom_Bundle/
+        │   └── 📁 Carrier_Onboarding/
         ├── document1.pdf
         └── image1.png
 ```
