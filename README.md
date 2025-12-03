@@ -9,12 +9,12 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 - **Smart Folder Lookup**: Automatically parses Jira ticket summaries to find/create customer and project folders
 - **Subfolder Organization**: Save attachments to organized subfolders:
 
-📁 01_System_Design
-📁 02_Meet_Recordings
-📁 03_Correspondence
-📁 04_Project_Documentation
-  📁 Project_Management
-  📁 Carrier_Onboarding
+  📁 01_System_Design
+  📁 02_Meet_Recordings
+  📁 03_Correspondence
+  📁 04_Project_Documentation
+  ├──📁 Project_Management
+  ├──📁 Carrier_Onboarding
 
 - **Attachment Selection**: Select specific attachments to save, with memory across sessions
 - **Duplicate Handling**: Intelligently handles duplicate files by checking size and adding timestamps when needed
@@ -30,19 +30,14 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 
 ### Configuration
 
-1. **Deploy the Google Apps Script**:
-   - Open [Google Apps Script](https://script.google.com/)
-   - Create a new project or use an existing one
-   - Copy the code from `Code.js` into your script
-   - Copy the configuration from `appsscript.json`
-   - Run `setupScriptProperties()` once to configure default settings
+1. Instalation steps as internal app needs to be added
 
 2. **Configure Integration Settings**:
    - Open the add-on in Gmail
    - Go to Settings (⚙️)
    - **Jira Configuration**:
-     - Enter your Jira URL (e.g., `https://your-company.atlassian.net`)
-     - Enter your [Jira API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
+     - Enter your Jira URL (e.g., `https://support.transporeon.com`)
+     - Enter your [Jira API token]
      - Customize JQL query if needed (default focuses on TPM tickets)
    - **Test Connection**: Click "Test Jira Connection" to verify settings
    - **Test Folder Lookup**: Click "Test Folder Lookup" to verify folder access
@@ -157,21 +152,4 @@ AND "Technical Project Manager" in (currentUser())
 - `parseJiraSummaryForFolders()` - Jira summary parser for folder names
 - `saveAttachmentWithAdvancedDrive()` - Shared Drive compatible file saving
 
-## License
 
-This project is licensed under the MIT License.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## Support
-
-For issues related to:
-- **Google Apps Script**: Check the [Apps Script documentation](https://developers.google.com/apps-script)
-- **Jira API**: Refer to the [Jira REST API documentation](https://developer.atlassian.com/cloud/jira/platform/rest/v2/)
-- **Gmail Add-ons**: See [Gmail Add-on guide](https://developers.google.com/gmail/add-ons)
