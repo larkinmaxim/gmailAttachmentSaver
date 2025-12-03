@@ -426,33 +426,43 @@ function clearFolderCache(customerId) {
 
 /**
  * Clear all folder cache entries (called from UI)
+ * 
+ * LIMITATION: Apps Script CacheService doesn't support listing all keys.
+ * This function notifies the user that cache will auto-expire in 6 hours.
+ * For immediate clearing of specific entries, use clearFolderCache(customerId) or clearProjectCache(ticketKey).
+ * 
  * @returns {CardService.ActionResponse} Notification response
  */
 function clearAllFolderCache() {
   try {
-    var cache = CacheService.getUserCache();
+    // IMPORTANT: Apps Script CacheService.removeAll() only removes exact key matches.
+    // Since our cache keys are dynamic (e.g., "customer_246028", "project_CXPRODELIVERY-4750"),
+    // we cannot clear them without knowing the specific IDs.
+    // 
+    // Apps Script limitations:
+    // - No way to list all cache keys
+    // - No pattern matching for key deletion
+    // - removeAll(['customer_', 'project_']) only removes these EXACT keys (which don't exist)
+    //
+    // Workarounds:
+    // 1. Cache naturally expires after 6 hours (21600 seconds)
+    // 2. Use clearFolderCache(customerId) for specific customer cache
+    // 3. Use clearProjectCache(ticketKey) for specific project cache
+    // 4. Restart the script to get a fresh cache context
     
-    // Remove known cache key patterns
-    // Note: Apps Script cache doesn't support listing all keys,
-    // so we clear common patterns
-    var clearedCount = 0;
-    
-    // Try to clear any cached folder lookups
-    // The cache will naturally expire after 6 hours anyway
-    cache.removeAll(['customer_', 'project_']);
-    
-    console.log("✅ Folder cache cleared");
+    console.log("⚠️ Cache clear requested, but Apps Script doesn't support clearing dynamic keys");
+    console.log("ℹ️ Cache will auto-expire in 6 hours");
     
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification()
-        .setText("✅ Folder cache cleared! Next folder lookups will be fresh."))
+        .setText("ℹ️ Note: Cache auto-expires in 6 hours. For immediate clearing, contact your admin."))
       .build();
       
   } catch (error) {
-    console.error("Error clearing cache:", error.message);
+    console.error("Error in cache clear function:", error.message);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification()
-        .setText("⚠️ Cache clear attempted: " + error.message))
+        .setText("⚠️ Cache clear error: " + error.message))
       .build();
   }
 }
