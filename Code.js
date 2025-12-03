@@ -10,33 +10,27 @@ function setupScriptProperties() {
   try {
     var scriptProperties = PropertiesService.getScriptProperties();
     
-    // Set the required environment variables for 2-stage OAuth authentication
+    // Set the required configuration properties
     scriptProperties.setProperties({
-       
-      // Core service URLs
-      'TRIMBLE_AUTH_SERVER_TOKEN': 'your_auth_server_token_here',  // Add your Trimble auth server token
-      'PMO_WEBHOOK_URL': 'https://flows.stage.trimble-ai.com/agentic/workflows/v1/webhook-test/55633332-0344-4811-8f3a-46e6be725a42',
-      'TRIMBLE_OAUTH_URL': 'https://stage.id.trimblecloud.com/oauth/token',
+      // Jira configuration
       'DEFAULT_JIRA_URL': 'https://support.transporeon.com',
       
-      // OAuth configuration
-      'OAUTH_GRANT_TYPE': 'client_credentials',
-      'OAUTH_SCOPE': 'Agentic-N8N-Webhook',
-      
       // Storage configuration
-      'SETTINGS_STORAGE_KEY': 'JIRA_SETTINGS'
+      'SETTINGS_STORAGE_KEY': 'JIRA_SETTINGS',
+      
+      // Google Drive folder configuration
+      'CUSTOMERS_FOLDER_ID': '1pi6fJzg5nncV7ADrcivI0gEAa9cjZLQp',
+      
+      // Logging configuration
+      // 0 = ERROR, 1 = WARN, 2 = INFO (default), 3 = DEBUG
+      'DEFAULT_LOG_LEVEL': '2'
     });
     
     console.log("✅ Script properties configured successfully:");
-    console.log("  - WEBHOOK_USERNAME: larmax (legacy)");
-    console.log("  - WEBHOOK_PASSWORD: ****** (hidden, legacy)");
-    console.log("  - TRIMBLE_AUTH_SERVER_TOKEN: ****** (hidden)");
-    console.log("  - PMO_WEBHOOK_URL: " + scriptProperties.getProperty('PMO_WEBHOOK_URL'));
-    console.log("  - TRIMBLE_OAUTH_URL: " + scriptProperties.getProperty('TRIMBLE_OAUTH_URL'));
     console.log("  - DEFAULT_JIRA_URL: " + scriptProperties.getProperty('DEFAULT_JIRA_URL'));
-    console.log("  - OAUTH_GRANT_TYPE: " + scriptProperties.getProperty('OAUTH_GRANT_TYPE'));
-    console.log("  - OAUTH_SCOPE: " + scriptProperties.getProperty('OAUTH_SCOPE'));
     console.log("  - SETTINGS_STORAGE_KEY: " + scriptProperties.getProperty('SETTINGS_STORAGE_KEY'));
+    console.log("  - CUSTOMERS_FOLDER_ID: " + scriptProperties.getProperty('CUSTOMERS_FOLDER_ID'));
+    console.log("  - DEFAULT_LOG_LEVEL: " + scriptProperties.getProperty('DEFAULT_LOG_LEVEL') + " (" + getLogLevelName(parseInt(scriptProperties.getProperty('DEFAULT_LOG_LEVEL'), 10)) + ")");
     
     return true;
     
@@ -46,71 +40,26 @@ function setupScriptProperties() {
   }
 }
 
-/**
- * Get webhook credentials from Script Properties
- */
-function getWebhookCredentials() {
-  var properties = PropertiesService.getScriptProperties();
-  var username = properties.getProperty('WEBHOOK_USERNAME');
-  var password = properties.getProperty('WEBHOOK_PASSWORD');
-  
-  if (!username || !password) {
-    throw new Error('Webhook credentials not configured. Please run setupScriptProperties() first.');
-  }
-  
-  return {
-    username: username,
-    password: password,
-    encodedCredentials: Utilities.base64Encode(username + ':' + password)
-  };
-}
+// ===== FOLDER CONFIGURATION CONSTANTS =====
 
 /**
- * Get PMO Webhook URL from Script Properties
+ * Standard project subfolders created for each new project
  */
-function getPMOWebhookURL() {
-  var properties = PropertiesService.getScriptProperties();
-  var url = properties.getProperty('PMO_WEBHOOK_URL');
-  
-  if (!url) {
-    throw new Error('PMO_WEBHOOK_URL not configured. Please run setupScriptProperties() first.');
-  }
-  
-  return url;
-}
+var PROJECT_SUBFOLDERS = [
+  "01_System_Design",
+  "02_Meet_Recordings",
+  "03_Correspondence",
+  "04_Project_Documentation"
+];
 
 /**
- * Environment Variable Getter Functions
+ * Subfolders created inside 04_Project_Documentation
  */
-
-/**
- * Get Trimble Auth Server Token from Script Properties
- */
-function getTrimbleAuthServerToken() {
-  var properties = PropertiesService.getScriptProperties();
-  var token = properties.getProperty('TRIMBLE_AUTH_SERVER_TOKEN');
-  
-  if (!token || token === 'your_auth_server_token_here') {
-    throw new Error('TRIMBLE_AUTH_SERVER_TOKEN not configured. Please set your auth server token in setupScriptProperties().');
-  }
-  
-  return token;
-}
-
-/**
- * Get Trimble OAuth URL from Script Properties
- */
-function getTrimbleOAuthURL() {
-  var properties = PropertiesService.getScriptProperties();
-  var url = properties.getProperty('TRIMBLE_OAUTH_URL');
-  
-  if (!url) {
-    // Fallback to hardcoded value for backward compatibility
-    return 'https://stage.id.trimblecloud.com/oauth/token';
-  }
-  
-  return url;
-}
+var DOC_SUBFOLDERS = [
+  "Project_Management",
+  "Custom_Bundle",
+  "Carrier_Onboarding"
+];
 
 /**
  * Get Default Jira URL from Script Properties
@@ -125,36 +74,6 @@ function getDefaultJiraURL() {
   }
   
   return url;
-}
-
-/**
- * Get OAuth Grant Type from Script Properties
- */
-function getOAuthGrantType() {
-  var properties = PropertiesService.getScriptProperties();
-  var grantType = properties.getProperty('OAUTH_GRANT_TYPE');
-  
-  if (!grantType) {
-    // Fallback to default value
-    return 'client_credentials';
-  }
-  
-  return grantType;
-}
-
-/**
- * Get OAuth Scope from Script Properties
- */
-function getOAuthScope() {
-  var properties = PropertiesService.getScriptProperties();
-  var scope = properties.getProperty('OAUTH_SCOPE');
-  
-  if (!scope) {
-    // Fallback to default value
-    return 'Agentic-N8N-Webhook';
-  }
-  
-  return scope;
 }
 
 /**
@@ -173,232 +92,872 @@ function getSettingsStorageKey() {
 }
 
 /**
- * Token Cache Management
+ * Get Customers Folder ID from Script Properties
+ * This is the parent folder where all customer folders are stored
  */
-
-/**
- * Get cached OAuth token if still valid
- */
-function getCachedOAuthToken() {
-  try {
-    var properties = PropertiesService.getScriptProperties();
-    var tokenData = properties.getProperty('CACHED_OAUTH_TOKEN');
-    
-    if (!tokenData) {
-      console.log("No cached OAuth token found");
-      return null;
-    }
-    
-    var cached = JSON.parse(tokenData);
-    var now = new Date().getTime();
-    var expiresAt = cached.expiresAt || 0;
-    
-    // Add 60 second buffer to avoid using tokens about to expire
-    var bufferTime = 60 * 1000; // 60 seconds
-    
-    if (now < (expiresAt - bufferTime)) {
-      var timeLeft = Math.floor((expiresAt - now) / 1000);
-      console.log("✅ Using cached OAuth token (expires in " + timeLeft + " seconds)");
-      return cached.accessToken;
-    } else {
-      console.log("❌ Cached OAuth token expired, will request new one");
-      // Clear expired token
-      properties.deleteProperty('CACHED_OAUTH_TOKEN');
-      return null;
-    }
-    
-  } catch (error) {
-    console.error("Error checking cached token:", error.message);
-    return null;
-  }
-}
-
-/**
- * Cache OAuth token with expiration time
- */
-function cacheOAuthToken(accessToken, expiresIn) {
-  try {
-    var properties = PropertiesService.getScriptProperties();
-    var now = new Date().getTime();
-    var expiresAt = now + (expiresIn * 1000); // Convert seconds to milliseconds
-    
-    var tokenData = {
-      accessToken: accessToken,
-      expiresIn: expiresIn,
-      expiresAt: expiresAt,
-      cachedAt: now
-    };
-    
-    properties.setProperty('CACHED_OAUTH_TOKEN', JSON.stringify(tokenData));
-    
-    var expiresInMinutes = Math.floor(expiresIn / 60);
-    console.log("✅ OAuth token cached successfully (expires in " + expiresInMinutes + " minutes)");
-    
-  } catch (error) {
-    console.error("Error caching OAuth token:", error.message);
-    // Don't throw error - caching is optional optimization
-  }
-}
-
-/**
- * Clear cached OAuth token (force renewal)
- */
-function clearCachedOAuthToken() {
-  try {
-    var properties = PropertiesService.getScriptProperties();
-    properties.deleteProperty('CACHED_OAUTH_TOKEN');
-    console.log("🗑️ Cached OAuth token cleared");
-  } catch (error) {
-    console.error("Error clearing cached token:", error.message);
-  }
-}
-
-/**
- * Get OAuth token status information
- */
-function getOAuthTokenStatus() {
-  try {
-    var properties = PropertiesService.getScriptProperties();
-    var tokenData = properties.getProperty('CACHED_OAUTH_TOKEN');
-    
-    if (!tokenData) {
-      return {
-        cached: false,
-        message: "No cached token"
-      };
-    }
-    
-    var cached = JSON.parse(tokenData);
-    var now = new Date().getTime();
-    var expiresAt = cached.expiresAt || 0;
-    var timeLeft = Math.floor((expiresAt - now) / 1000);
-    
-    if (timeLeft > 60) {
-      return {
-        cached: true,
-        valid: true,
-        timeLeft: timeLeft,
-        message: "Valid token (expires in " + Math.floor(timeLeft / 60) + " minutes)"
-      };
-    } else if (timeLeft > 0) {
-      return {
-        cached: true,
-        valid: false,
-        timeLeft: timeLeft,
-        message: "Token expires soon (" + timeLeft + " seconds)"
-      };
-    } else {
-      return {
-        cached: true,
-        valid: false,
-        timeLeft: 0,
-        message: "Token expired " + Math.abs(timeLeft) + " seconds ago"
-      };
-    }
-    
-  } catch (error) {
-    return {
-      cached: false,
-      error: error.message,
-      message: "Error checking token status"
-    };
-  }
-}
-
-/**
- * Handle expired token errors and retry with new token
- */
-function handleExpiredTokenError(originalError, retryFunction, retryParams) {
-  console.log("🔄 Handling potential expired token error...");
+function getCustomersFolderId() {
+  var properties = PropertiesService.getScriptProperties();
+  var folderId = properties.getProperty('CUSTOMERS_FOLDER_ID');
   
-  // Check if error indicates expired token
-  if (originalError.message.includes('401') || originalError.message.includes('403') || 
-      originalError.message.includes('Unauthorized') || originalError.message.includes('Forbidden')) {
-    
-    console.log("⚠️ Detected authentication error, clearing cached token and retrying...");
-    clearCachedOAuthToken();
-    
-    try {
-      // Retry the operation with a fresh token
-      console.log("🔄 Retrying operation with fresh OAuth token...");
-      return retryFunction.apply(null, retryParams);
-    } catch (retryError) {
-      console.error("❌ Retry failed:", retryError.message);
-      throw new Error('Authentication failed even after token renewal: ' + retryError.message);
+  if (!folderId) {
+    // Fallback to default value for backward compatibility
+    return '1pi6fJzg5nncV7ADrcivI0gEAa9cjZLQp';
+  }
+  
+  return folderId;
+}
+
+// ===== PERFORMANCE CONFIGURATION =====
+
+/**
+ * Log levels for controlling output verbosity
+ * 0 = ERROR - Only critical errors
+ * 1 = WARN  - Errors and warnings
+ * 2 = INFO  - Normal operation logs (default)
+ * 3 = DEBUG - Verbose diagnostic logging
+ */
+var LOG_LEVELS = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3
+};
+
+/**
+ * Default log level - can be overridden by user settings
+ * Set to INFO (2) for production, DEBUG (3) for troubleshooting
+ */
+var DEFAULT_LOG_LEVEL = LOG_LEVELS.INFO;
+
+/**
+ * Enable/disable verbose diagnostic logging (legacy - for backward compatibility)
+ * @deprecated Use LOG_LEVEL setting instead
+ */
+var ENABLE_VERBOSE_LOGGING = false;
+
+/**
+ * Cache duration for folder lookups (in milliseconds)
+ * Default: 5 minutes = 300000ms
+ */
+var FOLDER_CACHE_DURATION = 300000;
+
+/**
+ * Get current log level - checks User Properties first (per-user override),
+ * then Script Properties (global default), then falls back to hardcoded default
+ * @returns {number} Current log level (0-3)
+ */
+function getLogLevel() {
+  try {
+    // First check User Properties (per-user override)
+    var userProperties = PropertiesService.getUserProperties();
+    var userLogLevel = userProperties.getProperty('LOG_LEVEL');
+    if (userLogLevel !== null) {
+      var level = parseInt(userLogLevel, 10);
+      if (level >= 0 && level <= 3) {
+        return level;
+      }
     }
-  } else {
-    // Not an authentication error, re-throw original error
-    throw originalError;
+    
+    // Then check Script Properties (global default)
+    var scriptProperties = PropertiesService.getScriptProperties();
+    var scriptLogLevel = scriptProperties.getProperty('DEFAULT_LOG_LEVEL');
+    if (scriptLogLevel !== null) {
+      var level = parseInt(scriptLogLevel, 10);
+      if (level >= 0 && level <= 3) {
+        return level;
+      }
+    }
+  } catch (e) {
+    // Fall through to hardcoded default
+  }
+  return DEFAULT_LOG_LEVEL;
+}
+
+/**
+ * Get default log level from Script Properties
+ * @returns {number} Default log level (0-3)
+ */
+function getDefaultLogLevel() {
+  try {
+    var scriptProperties = PropertiesService.getScriptProperties();
+    var logLevel = scriptProperties.getProperty('DEFAULT_LOG_LEVEL');
+    if (logLevel !== null) {
+      var level = parseInt(logLevel, 10);
+      if (level >= 0 && level <= 3) {
+        return level;
+      }
+    }
+  } catch (e) {
+    // Fall through to constant
+  }
+  return DEFAULT_LOG_LEVEL;
+}
+
+/**
+ * Set default log level in Script Properties (applies to all users)
+ * @param {number} level - Log level (0-3)
+ */
+function setDefaultLogLevel(level) {
+  try {
+    if (level < 0 || level > 3) {
+      console.error("Invalid log level. Must be 0-3.");
+      return false;
+    }
+    var scriptProperties = PropertiesService.getScriptProperties();
+    scriptProperties.setProperty('DEFAULT_LOG_LEVEL', String(level));
+    console.log("✅ Default log level set to: " + getLogLevelName(level) + " (applies to all users)");
+    return true;
+  } catch (e) {
+    console.error("Failed to set default log level:", e.message);
+    return false;
   }
 }
 
 /**
- * Stage 1: Get OAuth token from Trimble auth server with caching
- * Returns access token for Stage 2 API calls
- * IMPORTANT: Token expires after 3600 seconds (1 hour)
+ * Set log level in user settings (per-user override)
+ * @param {number} level - Log level (0-3)
  */
-function getTrimbleOAuthToken() {
-  console.log("=== STAGE 1: TRIMBLE OAUTH TOKEN RETRIEVAL ===");
-  
+function setLogLevel(level) {
   try {
-    // Check if we have a valid cached token first
-    var cachedToken = getCachedOAuthToken();
-    if (cachedToken) {
-      return cachedToken;
-    }
+    var userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty('LOG_LEVEL', String(level));
+    console.log("✅ Log level set to: " + getLogLevelName(level));
+  } catch (e) {
+    console.error("Failed to set log level:", e.message);
+  }
+}
+
+/**
+ * Clear user's log level override (revert to Script Properties default)
+ */
+function clearUserLogLevel() {
+  try {
+    var userProperties = PropertiesService.getUserProperties();
+    userProperties.deleteProperty('LOG_LEVEL');
+    console.log("✅ User log level cleared. Now using default: " + getLogLevelName(getDefaultLogLevel()));
+  } catch (e) {
+    console.error("Failed to clear user log level:", e.message);
+  }
+}
+
+/**
+ * Get human-readable log level name
+ * @param {number} level - Log level number
+ * @returns {string} Log level name
+ */
+function getLogLevelName(level) {
+  switch (level) {
+    case 0: return "ERROR";
+    case 1: return "WARN";
+    case 2: return "INFO";
+    case 3: return "DEBUG";
+    default: return "UNKNOWN";
+  }
+}
+
+/**
+ * Log error message (always shown)
+ * @param {string} message - Message to log
+ */
+function logError(message) {
+  console.error("❌ " + message);
+}
+
+/**
+ * Log warning message (shown at WARN level and above)
+ * @param {string} message - Message to log
+ */
+function logWarn(message) {
+  if (getLogLevel() >= LOG_LEVELS.WARN) {
+    console.log("⚠️ " + message);
+  }
+}
+
+/**
+ * Log info message (shown at INFO level and above)
+ * @param {string} message - Message to log
+ */
+function logInfo(message) {
+  if (getLogLevel() >= LOG_LEVELS.INFO) {
+    console.log(message);
+  }
+}
+
+/**
+ * Log debug message (shown only at DEBUG level)
+ * @param {string} message - Message to log
+ */
+function logDebug(message) {
+  if (getLogLevel() >= LOG_LEVELS.DEBUG) {
+    console.log("🔍 " + message);
+  }
+}
+
+/**
+ * Conditional logging - only logs if verbose logging is enabled
+ * @deprecated Use logDebug() instead
+ */
+function verboseLog(message) {
+  if (ENABLE_VERBOSE_LOGGING || getLogLevel() >= LOG_LEVELS.DEBUG) {
+    console.log(message);
+  }
+}
+
+// ===== FOLDER SEARCH OPTIMIZATION =====
+
+/**
+ * Fast folder search using Drive API query instead of iteration
+ * This is MUCH faster than iterating through all folders
+ * 
+ * @param {string} parentFolderId - The parent folder ID to search in
+ * @param {string} searchPattern - Text to search for in folder name
+ * @returns {Object} Search result with folder info
+ */
+function findFolderByNamePattern(parentFolderId, searchPattern) {
+  try {
+    var startTime = new Date().getTime();
     
-    // No valid cached token, request new one
-    console.log("Requesting new OAuth token from server...");
+    // Use Drive API query - optimized for Shared Drives
+    var query = "mimeType='application/vnd.google-apps.folder' and '" + parentFolderId + "' in parents and trashed=false and name contains '" + searchPattern + "'";
     
-    var authServerToken = getTrimbleAuthServerToken();
-    var authUrl = getTrimbleOAuthURL();
-    var grantType = getOAuthGrantType();
-    var scope = getOAuthScope();
-    
-    console.log("OAuth request to:", authUrl);
-    console.log("Grant type:", grantType);
-    console.log("Scope:", scope);
-    
-    var payload = 'grant_type=' + encodeURIComponent(grantType) + '&scope=' + encodeURIComponent(scope);
-    
-    var response = UrlFetchApp.fetch(authUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': authServerToken,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      payload: payload,
-      muteHttpExceptions: true,
-      timeout: 10000
+    var results = Drive.Files.list({
+      q: query,
+      fields: 'files(id,name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      corpora: 'allDrives',  // IMPORTANT: Optimizes Shared Drive search
+      pageSize: 5  // We only need the first match
     });
     
-    var responseCode = response.getResponseCode();
-    var responseText = response.getContentText();
+    var duration = new Date().getTime() - startTime;
+    logDebug("⏱️ Drive search: " + duration + "ms, found " + (results.files ? results.files.length : 0) + " for '" + searchPattern + "'");
     
-    console.log("OAuth response code:", responseCode);
-    console.log("OAuth response:", responseText);
+    if (results.files && results.files.length > 0) {
+      var folder = results.files[0];
+      return {
+        success: true,
+        found: true,
+        folder: {
+          id: folder.id,
+          name: folder.name
+        },
+        duration: duration
+      };
+    }
     
-    if (responseCode === 200) {
-      var data = JSON.parse(responseText);
-      if (data.access_token) {
-        var expiresIn = data.expires_in || 3600; // Default to 1 hour if not specified
-        console.log("✅ OAuth token retrieved successfully (expires in " + expiresIn + " seconds)");
-        
-        // Cache the token for future use
-        cacheOAuthToken(data.access_token, expiresIn);
-        
-        return data.access_token;
+    return {
+      success: true,
+      found: false,
+      duration: duration
+    };
+    
+  } catch (error) {
+    logError("Drive search failed: " + error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Get cached folder lookup or perform search
+ * Caches folder IDs to avoid repeated searches
+ * 
+ * @param {string} cacheKey - Unique cache key (e.g., "customer_246028")
+ * @param {string} parentFolderId - Parent folder to search in
+ * @param {string} searchPattern - Pattern to search for
+ * @returns {Object} Folder result (from cache or fresh search)
+ */
+function getCachedOrSearchFolder(cacheKey, parentFolderId, searchPattern) {
+  try {
+    var cache = CacheService.getUserCache();
+    var cached = cache.get(cacheKey);
+    
+    if (cached) {
+      var cachedData = JSON.parse(cached);
+      logDebug("📦 Cache HIT for " + cacheKey + " - folder: " + cachedData.name);
+      return {
+        success: true,
+        found: true,
+        fromCache: true,
+        folder: cachedData
+      };
+    }
+    
+    logDebug("📦 Cache MISS for " + cacheKey + " - searching...");
+    
+    // Perform search
+    var searchResult = findFolderByNamePattern(parentFolderId, searchPattern);
+    
+    if (searchResult.success && searchResult.found) {
+      // Cache the result (6 hours = 21600 seconds max for Apps Script cache)
+      cache.put(cacheKey, JSON.stringify(searchResult.folder), 21600);
+      logDebug("📦 Cached folder: " + searchResult.folder.name);
+    }
+    
+    return searchResult;
+    
+  } catch (error) {
+    logError("Cache error, falling back to search: " + error.message);
+    return findFolderByNamePattern(parentFolderId, searchPattern);
+  }
+}
+
+/**
+ * Clear folder cache for a specific customer or all
+ * @param {string} customerId - Optional customer ID to clear, or null for all
+ */
+function clearFolderCache(customerId) {
+  try {
+    var cache = CacheService.getUserCache();
+    if (customerId) {
+      cache.remove("customer_" + customerId);
+      cache.remove("project_" + customerId);
+      console.log("Cleared cache for customer:", customerId);
+    } else {
+      // Can't clear all in Apps Script, but individual keys can be removed
+      console.log("Cache cleared for specified keys");
+    }
+  } catch (error) {
+    console.error("Error clearing cache:", error.message);
+  }
+}
+
+/**
+ * Clear all folder cache entries (called from UI)
+ * @returns {CardService.ActionResponse} Notification response
+ */
+function clearAllFolderCache() {
+  try {
+    var cache = CacheService.getUserCache();
+    
+    // Remove known cache key patterns
+    // Note: Apps Script cache doesn't support listing all keys,
+    // so we clear common patterns
+    var clearedCount = 0;
+    
+    // Try to clear any cached folder lookups
+    // The cache will naturally expire after 6 hours anyway
+    cache.removeAll(['customer_', 'project_']);
+    
+    console.log("✅ Folder cache cleared");
+    
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("✅ Folder cache cleared! Next folder lookups will be fresh."))
+      .build();
+      
+  } catch (error) {
+    console.error("Error clearing cache:", error.message);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("⚠️ Cache clear attempted: " + error.message))
+      .build();
+  }
+}
+
+// ===== JIRA SUMMARY PARSING FUNCTIONS =====
+
+/**
+ * Parse Jira summary field to extract folder names
+ * @param {string} summary - Jira summary field value
+ * @param {string} ticketKey - Jira ticket key (e.g., "CXPRODELIVERY-4750")
+ * @returns {Object} Parsed components and folder names
+ */
+function parseJiraSummaryForFolders(summary, ticketKey) {
+  verboseLog("=".repeat(80));
+  verboseLog("    PARSE JIRA SUMMARY FOR FOLDER NAMES");
+  verboseLog("=".repeat(80));
+  
+  if (!summary) {
+    console.error("❌ No summary provided");
+    return { success: false, error: "No summary provided" };
+  }
+  
+  if (!ticketKey) {
+    console.error("❌ No ticket key provided");
+    return { success: false, error: "No ticket key provided" };
+  }
+  
+  verboseLog("📋 Input: " + ticketKey + " - " + summary.substring(0, 50) + "...");
+  
+  var result = {
+    success: false,
+    original: {
+      summary: summary,
+      ticketKey: ticketKey
+    },
+    parsed: {
+      customerId: null,
+      customerName: null,
+      projectType: null,
+      scopeDescription: null
+    },
+    folderNames: {
+      customerFolder: null,
+      projectFolder: null
+    }
+  };
+  
+  // Pattern: [CustomerID] - [Customer Name] | [Project Type] | [Scope Description]
+  var parts = summary.split(' | ');
+  
+  if (parts.length < 2) {
+    console.error("❌ Summary doesn't match expected pattern");
+    result.error = "Summary doesn't match expected pattern (missing ' | ' separators)";
+    return result;
+  }
+  
+  // Part 1: "[CustomerID] - [Customer Name]"
+  var customerPart = parts[0].trim();
+  var customerMatch = customerPart.match(/^(\d+)\s*-\s*(.+)$/);
+  
+  if (customerMatch) {
+    result.parsed.customerId = customerMatch[1].trim();
+    result.parsed.customerName = customerMatch[2].trim();
+  } else {
+    verboseLog("⚠️ Could not parse customer ID from: " + customerPart);
+    result.parsed.customerName = customerPart;
+  }
+  
+  // Part 2: "[Project Type]"
+  if (parts.length >= 2) {
+    result.parsed.projectType = parts[1].trim();
+  }
+  
+  // Part 3+: "[Scope Description]"
+  if (parts.length >= 3) {
+    result.parsed.scopeDescription = parts.slice(2).join(' | ').trim();
+  }
+  
+  // Generate folder names
+  if (result.parsed.customerId && result.parsed.customerName) {
+    result.folderNames.customerFolder = result.parsed.customerId + " - " + result.parsed.customerName;
+  } else if (result.parsed.customerName) {
+    result.folderNames.customerFolder = result.parsed.customerName;
+  }
+  
+  var projectParts = [ticketKey];
+  if (result.parsed.projectType) {
+    projectParts.push(result.parsed.projectType);
+  }
+  if (result.parsed.scopeDescription) {
+    projectParts.push(result.parsed.scopeDescription);
+  }
+  result.folderNames.projectFolder = projectParts.join(' | ');
+  
+  console.log("📁 Parsed: Customer=" + result.parsed.customerId + ", Project=" + result.parsed.projectType);
+  
+  result.success = true;
+  return result;
+}
+
+/**
+ * Sanitize folder name for Google Drive
+ * @param {string} folderName - Original folder name
+ * @returns {string} Sanitized folder name
+ */
+function sanitizeFolderName(folderName) {
+  if (!folderName) return "";
+  
+  var sanitized = folderName
+    .replace(/[\/\\:*?"<>|]/g, '-')  // Replace forbidden chars with dash
+    .replace(/\s+/g, ' ')             // Normalize whitespace
+    .replace(/-+/g, '-')              // Remove duplicate dashes
+    .replace(/^-|-$/g, '')            // Remove leading/trailing dashes
+    .trim();
+  
+  // Limit length
+  if (sanitized.length > 200) {
+    sanitized = sanitized.substring(0, 200).trim();
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Fetch Jira ticket and parse summary for folder names
+ * @param {string} ticketKey - Jira ticket key
+ * @returns {Object} Parse result with folder names
+ */
+function getJiraTicketFolderNames(ticketKey, cachedSettings) {
+  verboseLog("=".repeat(80));
+  verboseLog("    GET FOLDER NAMES FROM JIRA TICKET");
+  verboseLog("=".repeat(80));
+  
+  if (!ticketKey) {
+    return { success: false, error: "No ticket key provided" };
+  }
+  
+  try {
+    // Use cached settings if provided, otherwise load fresh
+    var settings = cachedSettings || getUserSettings();
+    
+    if (!settings.jiraUrl || !settings.jiraToken) {
+      console.error("❌ Jira not configured");
+      return { success: false, error: "Jira not configured" };
+    }
+    
+    var issueUrl = settings.jiraUrl + '/rest/api/2/issue/' + ticketKey;
+    verboseLog("🔍 Fetching ticket " + ticketKey + " from Jira...");
+    
+    var response = UrlFetchApp.fetch(issueUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + settings.jiraToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() !== 200) {
+      console.error("❌ Jira API failed:", response.getResponseCode());
+      return { success: false, error: "Jira API failed: " + response.getResponseCode() };
+    }
+    
+    var data = JSON.parse(response.getContentText());
+    
+    if (!data.fields || !data.fields.summary) {
+      console.error("❌ No summary field in ticket");
+      return { success: false, error: "No summary field in ticket" };
+    }
+    
+    var summary = data.fields.summary;
+    console.log("📋 " + ticketKey + ": " + summary.substring(0, 60) + "...");
+    
+    var parseResult = parseJiraSummaryForFolders(summary, ticketKey);
+    
+    parseResult.ticketData = {
+      key: data.key,
+      id: data.id,
+      status: data.fields.status ? data.fields.status.name : null
+    };
+    
+    return parseResult;
+    
+  } catch (error) {
+    console.error("❌ Error:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Create customer folder in Customers directory
+ * @param {string} customerFolderName - Name for the customer folder
+ * @returns {Object} Created folder info
+ */
+function createCustomerFolder(customerFolderName) {
+  console.log("=".repeat(80));
+  console.log("    CREATE CUSTOMER FOLDER");
+  console.log("=".repeat(80));
+  
+  console.log("📁 Customers Folder ID:", getCustomersFolderId());
+  console.log("📁 New Folder Name:", customerFolderName);
+  
+  try {
+    var customersFolder = DriveApp.getFolderById(getCustomersFolderId());
+    console.log("✅ Customers folder accessed:", customersFolder.getName());
+    
+    console.log("\nCreating customer folder...");
+    var customerFolder = customersFolder.createFolder(customerFolderName);
+    
+    console.log("✅ Customer folder created!");
+    console.log("   Name:", customerFolder.getName());
+    console.log("   ID:", customerFolder.getId());
+    console.log("   URL:", customerFolder.getUrl());
+    
+    return {
+      success: true,
+      created: true,
+      folder: {
+        name: customerFolder.getName(),
+        id: customerFolder.getId(),
+        url: customerFolder.getUrl()
+      }
+    };
+    
+  } catch (error) {
+    console.error("❌ Failed to create customer folder");
+    console.error("Error:", error.message);
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Create project folder with standard subfolders
+ * @param {string} parentFolderId - ID of the customer folder
+ * @param {string} projectFolderName - Name for the project folder
+ * @returns {Object} Created folder info
+ */
+function createProjectFolderStructure(parentFolderId, projectFolderName) {
+  console.log("=".repeat(80));
+  console.log("    CREATE PROJECT FOLDER STRUCTURE");
+  console.log("=".repeat(80));
+  
+  console.log("📁 Parent Folder ID:", parentFolderId);
+  console.log("📁 Project Folder Name:", projectFolderName);
+  
+  try {
+    var parentFolder = DriveApp.getFolderById(parentFolderId);
+    console.log("✅ Parent folder accessed:", parentFolder.getName());
+    
+    // Create main project folder
+    console.log("\n1️⃣ Creating project folder...");
+    var projectFolder = parentFolder.createFolder(projectFolderName);
+    console.log("   ✅ Created:", projectFolder.getName());
+    console.log("   ID:", projectFolder.getId());
+    console.log("   URL:", projectFolder.getUrl());
+    
+    // Create main subfolders
+    console.log("\n2️⃣ Creating subfolders...");
+    var createdSubfolders = {};
+    
+    for (var i = 0; i < PROJECT_SUBFOLDERS.length; i++) {
+      var subfolderName = PROJECT_SUBFOLDERS[i];
+      var subfolder = projectFolder.createFolder(subfolderName);
+      createdSubfolders[subfolderName] = subfolder;
+      console.log("   ✅", subfolderName);
+    }
+    
+    // Create documentation subfolders inside 04_Project_Documentation
+    console.log("\n3️⃣ Creating documentation subfolders...");
+    var docFolder = createdSubfolders["04_Project_Documentation"];
+    
+    for (var i = 0; i < DOC_SUBFOLDERS.length; i++) {
+      var docSubfolderName = DOC_SUBFOLDERS[i];
+      docFolder.createFolder(docSubfolderName);
+      console.log("   ✅ 04_Project_Documentation/" + docSubfolderName);
+    }
+    
+    console.log("\n✅ Folder structure created successfully!");
+    console.log("🔗 Project Folder URL:", projectFolder.getUrl());
+    
+    return {
+      success: true,
+      projectFolder: {
+        name: projectFolder.getName(),
+        id: projectFolder.getId(),
+        url: projectFolder.getUrl()
+      },
+      subfolders: PROJECT_SUBFOLDERS,
+      docSubfolders: DOC_SUBFOLDERS
+    };
+    
+  } catch (error) {
+    console.error("❌ Failed to create folder structure");
+    console.error("Error:", error.message);
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Complete workflow: Get folder names from Jira and search/create folders
+ * OPTIMIZED version with fast folder search and caching
+ * 
+ * @param {string} ticketKey - Jira ticket key
+ * @param {boolean} createIfMissing - Whether to create folders if they don't exist
+ * @param {Object} cachedSettings - Optional pre-loaded settings to avoid redundant loading
+ * @returns {Object} Workflow result with folder info
+ */
+function completeJiraToFolderWorkflowWithCreate(ticketKey, createIfMissing, cachedSettings) {
+  var workflowStart = new Date().getTime();
+  console.log("\n🚀 JIRA → FOLDER WORKFLOW (OPTIMIZED) for " + ticketKey);
+  
+  if (!ticketKey) {
+    return { success: false, error: "No ticket key provided" };
+  }
+  
+  if (createIfMissing === undefined) {
+    createIfMissing = true;
+  }
+  
+  var result = {
+    ticketKey: ticketKey,
+    success: false,
+    customerFolder: null,
+    projectFolder: null,
+    created: {
+      customerFolder: false,
+      projectFolder: false
+    }
+  };
+  
+  // Step 1: Get folder names from Jira (pass cached settings for performance)
+  logDebug("STEP 1: PARSE JIRA TICKET");
+  
+  var parseResult = getJiraTicketFolderNames(ticketKey, cachedSettings);
+  
+  if (!parseResult.success) {
+    logError("Failed to get folder names from Jira");
+    result.error = parseResult.error;
+    return result;
+  }
+  
+  var customerFolderName = sanitizeFolderName(parseResult.folderNames.customerFolder);
+  var projectFolderName = sanitizeFolderName(parseResult.folderNames.projectFolder);
+  var customerId = parseResult.parsed.customerId;
+  
+  logInfo("📁 Looking for: Customer=" + customerId + ", Ticket=" + ticketKey);
+  
+  // Step 2: Find or create customer folder (OPTIMIZED with fast search + caching)
+  logDebug("=".repeat(60));
+  logDebug("STEP 2: FIND/CREATE CUSTOMER FOLDER (OPTIMIZED)");
+  logDebug("=".repeat(60));
+  
+  var customerFolderObj = null;
+  
+  try {
+    logDebug("Fast searching for customer ID: " + customerId);
+    
+    // Use cached/fast search instead of slow iteration
+    var cacheKey = "customer_" + customerId;
+    var searchResult = getCachedOrSearchFolder(cacheKey, getCustomersFolderId(), customerId);
+    
+    if (searchResult.success && searchResult.found) {
+      // Get DriveApp folder object from the ID
+      customerFolderObj = DriveApp.getFolderById(searchResult.folder.id);
+      logInfo("✅ Found customer folder: " + searchResult.folder.name);
+      if (searchResult.fromCache) {
+        logDebug("   (from cache - instant!)");
+      }
+    }
+    
+    if (customerFolderObj) {
+      result.customerFolder = {
+        exists: true,
+        name: customerFolderObj.getName(),
+        id: customerFolderObj.getId(),
+        url: customerFolderObj.getUrl()
+      };
+    } else if (createIfMissing) {
+      logInfo("❌ Customer folder not found");
+      logInfo("📝 Creating: " + customerFolderName);
+      
+      var createResult = createCustomerFolder(customerFolderName);
+      
+      if (createResult.success) {
+        result.customerFolder = {
+          exists: true,
+          name: createResult.folder.name,
+          id: createResult.folder.id,
+          url: createResult.folder.url
+        };
+        result.created.customerFolder = true;
+        customerFolderObj = DriveApp.getFolderById(createResult.folder.id);
       } else {
-        throw new Error('No access_token in response: ' + responseText);
+        logError("Failed to create customer folder");
+        result.error = createResult.error;
+        return result;
       }
     } else {
-      throw new Error('OAuth request failed with code ' + responseCode + ': ' + responseText);
+      logInfo("❌ Customer folder not found (creation disabled)");
+      result.customerFolder = {
+        exists: false,
+        suggestedName: customerFolderName
+      };
     }
     
   } catch (error) {
-    console.error("❌ Stage 1 OAuth failed:", error.message);
-    throw new Error('Failed to get Trimble OAuth token: ' + error.message);
+    logError("Error: " + error.message);
+    result.error = error.message;
+    return result;
   }
+  
+  // Step 3: Find or create project folder (OPTIMIZED with fast search + caching)
+  if (result.customerFolder && result.customerFolder.exists) {
+    logDebug("=".repeat(60));
+    logDebug("STEP 3: FIND/CREATE PROJECT FOLDER (OPTIMIZED)");
+    logDebug("=".repeat(60));
+    
+    try {
+      logDebug("Fast searching for ticket: " + ticketKey);
+      
+      // Use cached/fast search instead of slow iteration
+      var projectCacheKey = "project_" + ticketKey;
+      var projectSearchResult = getCachedOrSearchFolder(projectCacheKey, result.customerFolder.id, ticketKey);
+      var existingProjectFolder = null;
+      
+      if (projectSearchResult.success && projectSearchResult.found) {
+        existingProjectFolder = DriveApp.getFolderById(projectSearchResult.folder.id);
+        logInfo("✅ Found project folder: " + projectSearchResult.folder.name);
+        if (projectSearchResult.fromCache) {
+          logDebug("   (from cache - instant!)");
+        }
+      }
+      
+      if (existingProjectFolder) {
+        result.projectFolder = {
+          exists: true,
+          name: existingProjectFolder.getName(),
+          id: existingProjectFolder.getId(),
+          url: existingProjectFolder.getUrl()
+        };
+      } else if (createIfMissing) {
+        logInfo("❌ Project folder not found");
+        logInfo("📝 Creating: " + projectFolderName);
+        
+        var createResult = createProjectFolderStructure(result.customerFolder.id, projectFolderName);
+        
+        if (createResult.success) {
+          result.projectFolder = {
+            exists: true,
+            name: createResult.projectFolder.name,
+            id: createResult.projectFolder.id,
+            url: createResult.projectFolder.url
+          };
+          result.created.projectFolder = true;
+        } else {
+          logError("Failed to create project folder");
+          result.projectFolder = {
+            exists: false,
+            error: createResult.error
+          };
+        }
+      } else {
+        logInfo("❌ Project folder not found (creation disabled)");
+        result.projectFolder = {
+          exists: false,
+          suggestedName: projectFolderName
+        };
+      }
+      
+    } catch (error) {
+      logError("Error: " + error.message);
+    }
+  }
+  
+  // Final Summary
+  var workflowDuration = new Date().getTime() - workflowStart;
+  
+  result.success = true;
+  result.parsed = parseResult.parsed;
+  result.folderNames = {
+    customerFolder: customerFolderName,
+    projectFolder: projectFolderName
+  };
+  
+  // Concise summary
+  var customerStatus = result.customerFolder && result.customerFolder.exists 
+    ? (result.created.customerFolder ? "🆕 CREATED" : "✅ EXISTS") 
+    : "❌ NOT FOUND";
+  var projectStatus = result.projectFolder && result.projectFolder.exists 
+    ? (result.created.projectFolder ? "🆕 CREATED" : "✅ EXISTS") 
+    : "❌ NOT FOUND";
+  
+  console.log("✅ Workflow completed in " + workflowDuration + "ms");
+  console.log("   Customer: " + customerStatus + " | Project: " + projectStatus);
+  
+  return result;
 }
 
 // ===== MAIN GMAIL ADD-ON FUNCTIONS =====
@@ -418,24 +977,13 @@ function buildAddOn(e) {
       console.log("Settings validation results:");
       console.log("- Jira Token present:", !!settings.jiraToken);
       console.log("- Jira URL present:", !!settings.jiraUrl);
+      console.log("- Customers Folder ID:", getCustomersFolderId());
       
-      // Check environment variables for PMO integration
-      var pmoConfigured = false;
-      try {
-        getPMOWebhookURL();
-        getTrimbleAuthServerToken();
-        pmoConfigured = true;
-        console.log("- PMO Environment Variables: Configured");
-      } catch (error) {
-        console.log("- PMO Environment Variables: NOT CONFIGURED -", error.message);
-      }
-      
-      if (!settings.jiraToken || !settings.jiraUrl || !pmoConfigured) {
+      if (!settings.jiraToken || !settings.jiraUrl) {
         console.log("SETTINGS INCOMPLETE - showing setup screen");
         console.log("Missing:");
         if (!settings.jiraToken) console.log("- Jira Token");
         if (!settings.jiraUrl) console.log("- Jira URL");
-        if (!pmoConfigured) console.log("- PMO Environment Variables (run setupScriptProperties())");
         
         return [buildSettingsCard(true)]; // true = first time setup
       }
@@ -578,7 +1126,7 @@ function buildAddOn(e) {
         // Add save button
         var saveButtonSet = CardService.newButtonSet()
           .addButton(CardService.newTextButton()
-            .setText("Save to PMO Folder")
+            .setText("Save to Project Folder")
             .setOnClickAction(CardService.newAction().setFunctionName("saveSelectedAttachmentsToGDrive")));
         section.addWidget(saveButtonSet);
         
@@ -770,7 +1318,7 @@ function buildAddOn(e) {
       
       var saveButtonSet = CardService.newButtonSet()
         .addButton(CardService.newTextButton()
-          .setText("💾 Save to PMO Folder")
+          .setText("💾 Save to Project Folder")
           .setOnClickAction(saveAction));
       
       saveSection.addWidget(saveButtonSet);
@@ -905,32 +1453,12 @@ function buildAddOn(e) {
         .setOnClickAction(CardService.newAction().setFunctionName("testJiraConnection")));
     buttonSection.addWidget(testButtonSet);
     
-    var testPMOButtonSet = CardService.newButtonSet()
+    // Folder Lookup Test Button
+    var folderTestButtonSet = CardService.newButtonSet()
       .addButton(CardService.newTextButton()
-        .setText("🧪 Test PMO Connection")
-        .setOnClickAction(CardService.newAction().setFunctionName("testPMOConnection")));
-    buttonSection.addWidget(testPMOButtonSet);
-    
-    // OAuth Test Button
-    var oauthTestButtonSet = CardService.newButtonSet()
-      .addButton(CardService.newTextButton()
-        .setText("🔐 Test 2-Stage OAuth")
-        .setOnClickAction(CardService.newAction().setFunctionName("testTrimbleOAuthFlow")));
-    buttonSection.addWidget(oauthTestButtonSet);
-    
-    // Environment Variables Test Button
-    var envTestButtonSet = CardService.newButtonSet()
-      .addButton(CardService.newTextButton()
-        .setText("⚙️ Test Environment Variables")
-        .setOnClickAction(CardService.newAction().setFunctionName("testEnvironmentVariables")));
-    buttonSection.addWidget(envTestButtonSet);
-    
-    // OAuth Token Caching Test Button
-    var tokenTestButtonSet = CardService.newButtonSet()
-      .addButton(CardService.newTextButton()
-        .setText("🕒 Test Token Caching")
-        .setOnClickAction(CardService.newAction().setFunctionName("testOAuthTokenCaching")));
-    buttonSection.addWidget(tokenTestButtonSet);
+        .setText("📁 Test Folder Lookup")
+        .setOnClickAction(CardService.newAction().setFunctionName("testFolderLookup")));
+    buttonSection.addWidget(folderTestButtonSet);
     
     // Back button (only if not first time)
     if (!isFirstTime) {
@@ -942,6 +1470,38 @@ function buildAddOn(e) {
     }
     
     card.addSection(buttonSection);
+    
+    // Advanced Settings section
+    var advancedSection = CardService.newCardSection()
+      .setHeader("⚙️ Advanced Settings")
+      .setCollapsible(true)
+      .setNumUncollapsibleWidgets(0);
+    
+    // Log Level dropdown
+    var currentLogLevel = getLogLevel();
+    var logLevelDropdown = CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.DROPDOWN)
+      .setFieldName("logLevel")
+      .setTitle("Log Level")
+      .addItem("ERROR - Only errors", "0", currentLogLevel === 0)
+      .addItem("WARN - Errors & warnings", "1", currentLogLevel === 1)
+      .addItem("INFO - Normal (recommended)", "2", currentLogLevel === 2)
+      .addItem("DEBUG - Verbose (troubleshooting)", "3", currentLogLevel === 3);
+    advancedSection.addWidget(logLevelDropdown);
+    
+    // Log level help text
+    var logLevelHelp = CardService.newTextParagraph()
+      .setText("💡 Tip: Use DEBUG level only when troubleshooting.\nLower log levels improve performance.");
+    advancedSection.addWidget(logLevelHelp);
+    
+    // Clear Cache button
+    var clearCacheButton = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("🗑️ Clear Folder Cache")
+        .setOnClickAction(CardService.newAction().setFunctionName("clearAllFolderCache")));
+    advancedSection.addWidget(clearCacheButton);
+    
+    card.addSection(advancedSection);
     
     // Current settings display (if configured)
     if (settings.jiraUrl && settings.jiraToken) {
@@ -1045,40 +1605,19 @@ function buildAddOn(e) {
           .setOnClickAction(CardService.newAction().setFunctionName("saveSettings")));
       mainSection.addWidget(saveButtonSet);
       
-      // Test button
+      // Test buttons
       var testButtonSet = CardService.newButtonSet()
         .addButton(CardService.newTextButton()
           .setText("🧪 Test Jira Connection")
           .setOnClickAction(CardService.newAction().setFunctionName("testJiraConnection")));
       mainSection.addWidget(testButtonSet);
       
-      // PMO Test button
-      var testPMOButtonSet = CardService.newButtonSet()
+      // Folder Lookup Test button
+      var folderTestButtonSet = CardService.newButtonSet()
         .addButton(CardService.newTextButton()
-          .setText("🧪 Test PMO Connection")
-          .setOnClickAction(CardService.newAction().setFunctionName("testPMOConnection")));
-      mainSection.addWidget(testPMOButtonSet);
-      
-      // OAuth Test button
-      var oauthTestButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("🔐 Test 2-Stage OAuth")
-          .setOnClickAction(CardService.newAction().setFunctionName("testTrimbleOAuthFlow")));
-      mainSection.addWidget(oauthTestButtonSet);
-      
-      // Environment Variables Test button
-      var envTestButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("⚙️ Test Environment Variables")
-          .setOnClickAction(CardService.newAction().setFunctionName("testEnvironmentVariables")));
-      mainSection.addWidget(envTestButtonSet);
-      
-      // OAuth Token Caching Test button
-      var tokenTestButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("🕒 Test Token Caching")
-          .setOnClickAction(CardService.newAction().setFunctionName("testOAuthTokenCaching")));
-      mainSection.addWidget(tokenTestButtonSet);
+          .setText("📁 Test Folder Lookup")
+          .setOnClickAction(CardService.newAction().setFunctionName("testFolderLookup")));
+      mainSection.addWidget(folderTestButtonSet);
       
       // Back button
       var backButtonSet = CardService.newButtonSet()
@@ -1154,7 +1693,7 @@ function buildAddOn(e) {
       }
       
       
-      // Save settings (PMO variables are configured in environment)
+      // Save settings
       var settings = {
         jiraUrl: jiraUrl,
         jiraToken: finalToken,
@@ -1164,14 +1703,22 @@ function buildAddOn(e) {
       
       setUserSettings(settings);
       
+      // Save log level if provided
+      var logLevel = e.formInput.logLevel;
+      if (logLevel !== undefined && logLevel !== null) {
+        setLogLevel(parseInt(logLevel, 10));
+      }
+      
       console.log("Settings saved successfully");
       
-      // Success notification for Jira settings only (PMO configured in environment)
-      var successMsg = "✅ Jira Settings Saved Successfully!\n";
+      // Success notification for Jira settings
+      var currentLogLevelName = getLogLevelName(getLogLevel());
+      var successMsg = "✅ Settings Saved Successfully!\n";
       successMsg += "• Jira URL: " + jiraUrl + "\n";
       successMsg += "• API Token: " + (finalToken ? "Configured" : "Not Set") + "\n";
-      successMsg += "• JQL Query: " + (customJql ? "Custom" : "Default") + "\n\n";
-      successMsg += "📋 PMO Integration: Configured via environment variables\n";
+      successMsg += "• JQL Query: " + (customJql ? "Custom" : "Default") + "\n";
+      successMsg += "• Log Level: " + currentLogLevelName + "\n\n";
+      successMsg += "📁 Folder Integration: Using Jira summary parsing\n";
       successMsg += "💡 Use 'Test Connections' to verify functionality";
       
       return CardService.newActionResponseBuilder()
@@ -1226,149 +1773,81 @@ function buildAddOn(e) {
   }
   
   /**
-   * Test all environment variables configuration
+   * Test folder lookup functionality using Jira summary parsing
    */
-  function testEnvironmentVariables(e) {
-    console.log("=== TEST ENVIRONMENT VARIABLES ===");
+  function testFolderLookup(e) {
+    console.log("=== TEST FOLDER LOOKUP ===");
     
     try {
       var results = [];
-      var allPassed = true;
       
-      // Test each environment variable
+      // Test 1: Check Customers folder access
+      console.log("Testing Customers folder access...");
       try {
-        var authToken = getTrimbleAuthServerToken();
-        results.push("✅ TRIMBLE_AUTH_SERVER_TOKEN: Configured (" + authToken.length + " chars)");
-      } catch (error) {
-        results.push("❌ TRIMBLE_AUTH_SERVER_TOKEN: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var pmoUrl = getPMOWebhookURL();
-        results.push("✅ PMO_WEBHOOK_URL: " + pmoUrl);
-      } catch (error) {
-        results.push("❌ PMO_WEBHOOK_URL: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var oauthUrl = getTrimbleOAuthURL();
-        results.push("✅ TRIMBLE_OAUTH_URL: " + oauthUrl);
-      } catch (error) {
-        results.push("❌ TRIMBLE_OAUTH_URL: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var jiraUrl = getDefaultJiraURL();
-        results.push("✅ DEFAULT_JIRA_URL: " + jiraUrl);
-      } catch (error) {
-        results.push("❌ DEFAULT_JIRA_URL: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var grantType = getOAuthGrantType();
-        results.push("✅ OAUTH_GRANT_TYPE: " + grantType);
-      } catch (error) {
-        results.push("❌ OAUTH_GRANT_TYPE: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var scope = getOAuthScope();
-        results.push("✅ OAUTH_SCOPE: " + scope);
-      } catch (error) {
-        results.push("❌ OAUTH_SCOPE: " + error.message);
-        allPassed = false;
-      }
-      
-      try {
-        var storageKey = getSettingsStorageKey();
-        results.push("✅ SETTINGS_STORAGE_KEY: " + storageKey);
-      } catch (error) {
-        results.push("❌ SETTINGS_STORAGE_KEY: " + error.message);
-        allPassed = false;
-      }
-      
-      // Test OAuth token status
-      try {
-        var tokenStatus = getOAuthTokenStatus();
-        results.push("🔐 OAUTH_TOKEN_STATUS: " + tokenStatus.message);
-      } catch (error) {
-        results.push("❌ OAUTH_TOKEN_STATUS: " + error.message);
-      }
-      
-      var statusMsg = allPassed ? "✅ Environment Variables Test PASSED!" : "⚠️ Environment Variables Test - Issues Found";
-      var resultText = statusMsg + "\n\n" + results.join("\n");
-      
-      if (!allPassed) {
-        resultText += "\n\n💡 Run setupScriptProperties() to configure missing variables.";
-      }
-      
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification()
-          .setText(resultText))
-        .build();
+        var customersFolder = DriveApp.getFolderById(getCustomersFolderId());
+        results.push("✅ Customers Folder: Accessible");
+        results.push("   Name: " + customersFolder.getName());
+        results.push("   ID: " + getCustomersFolderId());
+      } catch (folderError) {
+        results.push("❌ Customers Folder: " + folderError.message);
         
-    } catch (error) {
-      console.error("❌ Environment variables test failed:", error.message);
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification()
+            .setText("❌ Folder Lookup Test FAILED\n\n" + results.join("\n") + "\n\n💡 Check folder permissions or ID"))
+          .build();
+      }
       
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification()
-          .setText("❌ Environment Variables Test FAILED\n• Error: " + error.message + "\n• Run setupScriptProperties() first"))
-        .build();
-    }
-  }
-
-  /**
-   * Test OAuth token caching and expiration handling
-   */
-  function testOAuthTokenCaching(e) {
-    console.log("=== TEST OAUTH TOKEN CACHING ===");
-    
-    try {
-      var results = [];
+      // Test 2: Test Jira connection and summary parsing
+      console.log("Testing Jira summary parsing...");
+      var testTicket = "CXPRODELIVERY-4750"; // Known test ticket
       
-      // Step 1: Check initial token status
-      var initialStatus = getOAuthTokenStatus();
-      results.push("📋 Initial Status: " + initialStatus.message);
+      try {
+        var parseResult = getJiraTicketFolderNames(testTicket);
+        
+        if (parseResult.success) {
+          results.push("");
+          results.push("✅ Jira Summary Parsing: Success");
+          results.push("   Customer: " + parseResult.parsed.customerId + " - " + parseResult.parsed.customerName);
+          results.push("   Project Type: " + parseResult.parsed.projectType);
+          results.push("");
+          results.push("📁 Generated Folder Names:");
+          results.push("   Customer: " + parseResult.folderNames.customerFolder);
+          results.push("   Project: " + parseResult.folderNames.projectFolder);
+        } else {
+          results.push("⚠️ Jira Summary Parsing: " + parseResult.error);
+        }
+      } catch (parseError) {
+        results.push("⚠️ Jira Summary Parsing: " + parseError.message);
+      }
       
-      // Step 2: Get a token (this will cache it)
-      console.log("Getting OAuth token (will be cached)...");
-      var token1 = getTrimbleOAuthToken();
-      results.push("✅ Token Retrieved: " + token1.substring(0, 20) + "... (cached)");
+      // Test 3: Test folder search (preview only)
+      console.log("Testing folder search...");
+      try {
+        var workflowResult = completeJiraToFolderWorkflowWithCreate(testTicket, false);
+        
+        if (workflowResult.success) {
+          results.push("");
+          results.push("✅ Folder Search Complete:");
+          
+          if (workflowResult.customerFolder && workflowResult.customerFolder.exists) {
+            results.push("   📁 Customer: EXISTS - " + workflowResult.customerFolder.name);
+          } else if (workflowResult.customerFolder) {
+            results.push("   📁 Customer: NOT FOUND (would create: " + workflowResult.customerFolder.suggestedName + ")");
+          }
+          
+          if (workflowResult.projectFolder && workflowResult.projectFolder.exists) {
+            results.push("   📁 Project: EXISTS - " + workflowResult.projectFolder.name);
+          } else if (workflowResult.projectFolder) {
+            results.push("   📁 Project: NOT FOUND (would create: " + workflowResult.projectFolder.suggestedName + ")");
+          }
+        } else {
+          results.push("⚠️ Folder Search: " + workflowResult.error);
+        }
+      } catch (searchError) {
+        results.push("⚠️ Folder Search: " + searchError.message);
+      }
       
-      // Step 3: Get token again (should use cached)
-      console.log("Getting OAuth token again (should use cached)...");
-      var token2 = getTrimbleOAuthToken();
-      var isSameToken = token1 === token2;
-      results.push((isSameToken ? "✅" : "❌") + " Cache Test: " + (isSameToken ? "Used cached token" : "New token requested"));
-      
-      // Step 4: Check current status
-      var currentStatus = getOAuthTokenStatus();
-      results.push("📋 Current Status: " + currentStatus.message);
-      
-      // Step 5: Test manual cache clearing
-      console.log("Testing manual cache clearing...");
-      clearCachedOAuthToken();
-      var clearedStatus = getOAuthTokenStatus();
-      results.push("🗑️ After Clear: " + clearedStatus.message);
-      
-      // Step 6: Get fresh token after clearing
-      console.log("Getting fresh token after clearing cache...");
-      var token3 = getTrimbleOAuthToken();
-      var isDifferentToken = token1 !== token3;
-      results.push((isDifferentToken ? "✅" : "❌") + " Fresh Token: " + (isDifferentToken ? "New token obtained" : "Same token (unexpected)"));
-      
-      // Step 7: Final status
-      var finalStatus = getOAuthTokenStatus();
-      results.push("📋 Final Status: " + finalStatus.message);
-      
-      var successMsg = "✅ OAuth Token Caching Test COMPLETED!\n\n";
-      successMsg += results.join("\n");
-      successMsg += "\n\n💡 Token expires in 1 hour (3600 seconds)";
+      var successMsg = "✅ Folder Lookup Test Complete!\n\n" + results.join("\n");
       
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
@@ -1376,153 +1855,11 @@ function buildAddOn(e) {
         .build();
         
     } catch (error) {
-      console.error("❌ OAuth token caching test failed:", error.message);
-      
-      var errorMsg = "❌ OAuth Token Caching Test FAILED\n";
-      errorMsg += "• Error: " + error.message + "\n";
-      errorMsg += "• Check environment variable configuration\n";
-      errorMsg += "• Ensure TRIMBLE_AUTH_SERVER_TOKEN is set correctly";
+      console.error("❌ Folder lookup test failed:", error.message);
       
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification()
-          .setText(errorMsg))
-        .build();
-    }
-  }
-
-  /**
-   * Test the complete 2-stage authentication flow
-   */
-  function testTrimbleOAuthFlow(e) {
-    console.log("=== TEST TRIMBLE 2-STAGE OAUTH FLOW ===");
-    
-    try {
-      // Stage 1: Test OAuth token retrieval
-      console.log("Testing Stage 1: OAuth token retrieval...");
-      var oauthToken = getTrimbleOAuthToken();
-      
-      if (oauthToken) {
-        console.log("✅ Stage 1 SUCCESS: OAuth token retrieved");
-        
-        // Stage 2: Test PMO webhook call with the token
-        console.log("Testing Stage 2: PMO webhook call with Bearer token...");
-        var testTicket = "CXPRODELIVERY-OAUTH-TEST-" + new Date().getTime();
-        var webhookUrl = getPMOWebhookURL();
-        
-        var response = UrlFetchApp.fetch(webhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + oauthToken
-          },
-          payload: JSON.stringify({"text": testTicket}),
-          muteHttpExceptions: true,
-          timeout: 10000
-        });
-        
-        var responseCode = response.getResponseCode();
-        console.log("Stage 2 response code:", responseCode);
-        console.log("Stage 2 response:", response.getContentText());
-        
-        if (responseCode === 200) {
-          var successMsg = "✅ 2-Stage OAuth Authentication Test SUCCESSFUL!\n";
-          successMsg += "• Stage 1: OAuth token retrieved ✓\n";
-          successMsg += "• Stage 2: PMO webhook call with Bearer token ✓\n";
-          successMsg += "• Test Ticket: " + testTicket + "\n";
-          successMsg += "• Response Code: " + responseCode + "\n";
-          successMsg += "🔐 Authentication flow is working correctly!";
-          
-          return CardService.newActionResponseBuilder()
-            .setNotification(CardService.newNotification()
-              .setText(successMsg))
-            .build();
-        } else {
-          throw new Error("Stage 2 failed with code " + responseCode + ": " + response.getContentText());
-        }
-      }
-    } catch (error) {
-      console.error("❌ 2-Stage OAuth test failed:", error.message);
-      
-      var errorMsg = "❌ 2-Stage OAuth Authentication Test FAILED\n";
-      errorMsg += "• Error: " + error.message + "\n";
-      errorMsg += "• Check auth server token configuration\n";
-      errorMsg += "• Verify network connectivity\n";
-      errorMsg += "• Review logs for detailed error information";
-      
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification()
-          .setText(errorMsg))
-        .build();
-    }
-  }
-  
-  function testPMOConnection(e) {
-    console.log("=== TEST PMO CONNECTION ===");
-    
-    try {
-      var settings = getUserSettings();
-      var webhookUrl = settings.pmoWebhookUrl || getDefaultPMOWebhookUrl();
-      
-      if (!webhookUrl) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText("❌ PMO webhook URL not configured. Please set URL first."))
-          .build();
-      }
-      
-      // Enhanced testing with multiple scenarios
-      console.log("Testing PMO webhook connectivity and folder operations...");
-      
-      // Test 1: Basic connectivity with test ticket
-      var testTicket = "CXPRODELIVERY-TEST-" + new Date().getTime();
-      console.log("Testing PMO connection with unique test ticket:", testTicket);
-      
-      var result = getPMOProjectFolder(testTicket);
-      
-      if (result.success) {
-        // Test 2: Verify folder access
-        var folderTest = getFolderByIdSafely(result.folderId);
-        
-        if (folderTest.success) {
-          var successMsg = "✅ PMO Connection Test Successful!\n";
-          successMsg += "• Webhook: Responsive\n";  
-          successMsg += "• Folder ID: " + result.folderId + "\n";
-          successMsg += "• Folder Name: " + folderTest.name + "\n";
-          successMsg += "• Status: " + (result.created ? "New folder created" : "Existing folder found") + "\n";
-          successMsg += "• Access: Read/Write permissions confirmed";
-          
-          return CardService.newActionResponseBuilder()
-            .setNotification(CardService.newNotification()
-              .setText(successMsg))
-            .build();
-        } else {
-          return CardService.newActionResponseBuilder()
-            .setNotification(CardService.newNotification()
-              .setText("⚠️ PMO webhook responded but folder access failed: " + folderTest.error))
-            .build();
-        }
-      } else {
-        // Enhanced error reporting
-        var errorMsg = "❌ PMO Connection Test Failed\n";
-        errorMsg += "• Webhook URL: " + webhookUrl + "\n";
-        errorMsg += "• Test Ticket: " + testTicket + "\n";
-        errorMsg += "• Error: " + result.error + "\n";
-        errorMsg += "• Suggestion: Check webhook URL and network connectivity";
-        
-        return CardService.newActionResponseBuilder()
-          .setNotification(CardService.newNotification()
-            .setText(errorMsg))
-          .build();
-      }
-      
-    } catch (error) {
-      var errorMsg = "❌ PMO Connection Test Error\n";
-      errorMsg += "• Error: " + error.message + "\n";
-      errorMsg += "• Check: Network connectivity and webhook configuration";
-      
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification()
-          .setText(errorMsg))
+          .setText("❌ Folder Lookup Test FAILED\n• Error: " + error.message))
         .build();
     }
   }
@@ -1925,7 +2262,7 @@ function buildAddOn(e) {
         
         var saveButtonSet = CardService.newButtonSet()
           .addButton(CardService.newTextButton()
-            .setText("💾 Save to PMO Folder")
+            .setText("💾 Save to Project Folder")
             .setOnClickAction(CardService.newAction()
               .setFunctionName("saveSelectedAttachmentsToGDrive")
               .setParameters({threadId: threadId})));
@@ -1936,7 +2273,7 @@ function buildAddOn(e) {
         // Legacy UI - simple save button
         var saveButtonSet = CardService.newButtonSet()
           .addButton(CardService.newTextButton()
-            .setText("Save to PMO Folder")
+            .setText("Save to Project Folder")
             .setOnClickAction(CardService.newAction()
               .setFunctionName("saveSelectedAttachmentsToGDrive")
               .setParameters({threadId: threadId})));
@@ -1982,9 +2319,11 @@ function buildAddOn(e) {
       console.log("Form input:", JSON.stringify(e.formInput));
       console.log("Parameters:", JSON.stringify(e.parameters));
       
-      // Add comprehensive diagnostic information for troubleshooting
-      console.log("\n=== DIAGNOSTIC INFO FOR TROUBLESHOOTING ===");
-      logDiagnosticInfo();
+      // Add comprehensive diagnostic information for troubleshooting (only if verbose logging enabled)
+      if (ENABLE_VERBOSE_LOGGING) {
+        console.log("\n=== DIAGNOSTIC INFO FOR TROUBLESHOOTING ===");
+        logDiagnosticInfo();
+      }
       
       var selectedTicket = e.formInput.selectedTicket;
       var manualTicketNumber = e.formInput.manualTicketNumber;
@@ -2110,26 +2449,28 @@ function buildAddOn(e) {
           .build();
       }
       
-  // N8N webhook Integration Logic (ONLY METHOD) - Lookup/Create folder
-      console.log("=== STARTING N8N webhook INTEGRATION ===");
-      console.log("Final ticket for Jira lookup:", finalTicket);
-      console.log("Selected attachments count:", selectedAttachments.length);
-      console.log("Integration timestamp:", new Date().toISOString());
+  // Jira Summary Parsing - Find/Create folder from ticket summary (OPTIMIZED)
+      console.log("\n🔍 Finding project folder for " + finalTicket + "...");
       
-      // Enhanced user feedback during N8N webhook operation
-      console.log("🔍 Contacting N8N Webhook system for project folder...");
+      // Load settings once and pass to workflow for better performance
+      var cachedSettings = getUserSettings();
+      var folderWorkflowResult = completeJiraToFolderWorkflowWithCreate(finalTicket, true, cachedSettings);
       
-      var pmoResult = getPMOProjectFolder(finalTicket);
+      verboseLog("📋 Folder Workflow Result: " + (folderWorkflowResult.success ? "Success" : "Failed"));
       
-      console.log("Lookup completed. Result:", JSON.stringify(pmoResult));
-      
-      if (!pmoResult.success) {
-        // Enhanced N8N webhook error handling with user-friendly messages
-        console.error("Lookup failed:", pmoResult.error);
+      if (!folderWorkflowResult.success) {
+        // Handle folder lookup/creation errors
+        console.error("\n❌ STEP 1 FAILED: Folder Lookup/Creation");
+        console.error("  Error:", folderWorkflowResult.error);
+        console.error("  Ticket:", finalTicket);
+        console.error("\n⏹️ PROCESS STOPPED: Cannot proceed without project folder");
         
-        // Get selected subfolder for enhanced error message
-        var selectedSubfolder = e.formInput.selectedSubfolder || "";
-        var userFriendlyError = getPMOSubfolderErrorMessage(pmoResult.error, finalTicket, selectedSubfolder);
+        var userFriendlyError = "❌ Cannot find/create project folder for " + finalTicket + "\n\n";
+        userFriendlyError += "Error: " + (folderWorkflowResult.error || "Unknown error") + "\n\n";
+        userFriendlyError += "💡 Possible solutions:\n";
+        userFriendlyError += "• Check if Jira ticket summary follows expected format\n";
+        userFriendlyError += "• Verify you have access to Customers folder\n";
+        userFriendlyError += "• Contact your project manager for assistance";
         
         return CardService.newActionResponseBuilder()
           .setNotification(CardService.newNotification()
@@ -2137,16 +2478,38 @@ function buildAddOn(e) {
           .build();
       }
       
-      console.log("N8N webhook returned folder ID:", pmoResult.folderId, "- Created:", pmoResult.created || false);
+      // Check if project folder was found/created
+      if (!folderWorkflowResult.projectFolder || !folderWorkflowResult.projectFolder.exists) {
+        console.error("\n❌ STEP 1 FAILED: Project Folder Not Available");
+        
+        var errorMsg = "❌ Project folder not available for " + finalTicket + "\n\n";
+        if (folderWorkflowResult.projectFolder && folderWorkflowResult.projectFolder.suggestedName) {
+          errorMsg += "Suggested name: " + folderWorkflowResult.projectFolder.suggestedName + "\n\n";
+        }
+        errorMsg += "💡 Please contact your project manager";
+        
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification()
+            .setText(errorMsg))
+          .build();
+      }
       
-      var folderResult = getFolderByIdSafely(pmoResult.folderId);
+      console.log("✅ Project folder found: " + folderWorkflowResult.projectFolder.name);
+      
+      // Verify folder access
+      var folderResult = getFolderByIdSafely(folderWorkflowResult.projectFolder.id);
+      
+      verboseLog("📋 Folder Access: " + (folderResult.success ? "Granted" : "Denied"));
       
       if (!folderResult.success) {
-        // Enhanced folder access error handling - Show request access card
-        console.error("Gdrive folder access failed:", folderResult.error);
+        // Handle folder access error
+        console.error("\n❌ STEP 2 FAILED: Folder Access Denied");
+        console.error("  Folder ID:", folderWorkflowResult.projectFolder.id);
+        console.error("  Error:", folderResult.error);
+        console.error("\n⏹️ PROCESS STOPPED: Cannot save files without folder access");
         
         // Build and show request access card
-        var requestAccessCard = buildRequestAccessCard(finalTicket, pmoResult.folderId, folderResult.error);
+        var requestAccessCard = buildRequestAccessCard(finalTicket, folderWorkflowResult.projectFolder.id, folderResult.error);
         
         return CardService.newActionResponseBuilder()
           .setNavigation(CardService.newNavigation().pushCard(requestAccessCard))
@@ -2154,54 +2517,39 @@ function buildAddOn(e) {
       }
       
       var projectRootFolder = folderResult.folder;
-      console.log("Using PMO folder:", folderResult.name);
       
-      // ===== NEW: SUBFOLDER SELECTION SUPPORT =====
+      // Subfolder selection
       var selectedSubfolder = e.formInput.selectedSubfolder || "";
-      console.log("=== SUBFOLDER PROCESSING ===");
-      console.log("Selected subfolder:", selectedSubfolder || "(Project Root)");
-      
-      // Validate subfolder selection
       var validation = validateSubfolderSelection(selectedSubfolder);
       if (!validation.valid) {
-        console.warn("Subfolder validation warning:", validation.warning);
         selectedSubfolder = validation.sanitized;
       }
       
       // Get or create target subfolder
       var targetFolderResult = getOrCreateProjectSubfolder(projectRootFolder, selectedSubfolder);
+      verboseLog("📂 Subfolder: " + (targetFolderResult.success ? targetFolderResult.path : "ERROR"));
       
       if (!targetFolderResult.success) {
         // Attempt fallback strategy
-        console.error("Subfolder creation failed, attempting fallback");
         var fallbackResult = handleSubfolderCreationFailure(projectRootFolder, selectedSubfolder, targetFolderResult);
         
         if (!fallbackResult.success) {
-          // Complete failure - show error
-          var subfolderError = getSubfolderCreationErrorMessage(
-            targetFolderResult.error,
-            projectRootFolder,
-            selectedSubfolder
-          );
-          
+          var subfolderError = getSubfolderCreationErrorMessage(targetFolderResult.error, projectRootFolder, selectedSubfolder);
           return CardService.newActionResponseBuilder()
-            .setNotification(CardService.newNotification()
-              .setText(subfolderError))
+            .setNotification(CardService.newNotification().setText(subfolderError))
             .build();
         }
         
-        // Fallback succeeded - use fallback folder
+        console.log("⚠️ Using fallback: " + fallbackResult.actualPath);
         targetFolderResult = fallbackResult;
-        console.log("Using fallback strategy:", fallbackResult.fallbackUsed);
       }
       
       var ticketFolder = targetFolderResult.folder;
       var actualFolderPath = targetFolderResult.path;
-      console.log("Target folder ready:", actualFolderPath);
-      console.log("Target folder ID:", ticketFolder.getId());
-      // ===== END SUBFOLDER SUPPORT =====
       
-      // Save selected attachments with duplicate handling
+      // Save selected attachments
+      console.log("💾 Saving " + selectedAttachments.length + " file(s) to: " + actualFolderPath);
+      
       var savedCount = 0;
       var skippedCount = 0;
       var savedFiles = [];
@@ -2212,14 +2560,14 @@ function buildAddOn(e) {
           var attachmentData = selectedAttachments[i];
           var fileName = attachmentData.name;
           var attachmentType = attachmentData.type || 'regular';
-          console.log("Processing", attachmentType, "attachment:", fileName);
+          
+          verboseLog("📎 " + (i + 1) + "/" + selectedAttachments.length + ": " + fileName + " (" + attachmentType + ")");
           
           var file;
           var finalFileName;
           
           if (attachmentType === 'google_docs') {
             // Handle Google Docs links
-            console.log("Copying Google Doc to folder:", fileName);
             file = copyGoogleDocToFolder({
               title: attachmentData.name,
               url: attachmentData.url,
@@ -2229,24 +2577,18 @@ function buildAddOn(e) {
             finalFileName = file.getName();
             savedCount++;
             savedFiles.push(finalFileName);
-            console.log("Successfully copied Google Doc:", finalFileName);
             
           } else {
-            // Handle regular attachments
-            // Check if file already exists
+            // Handle regular attachments - check for duplicates
             var existingFiles = ticketFolder.getFilesByName(fileName);
             
             if (existingFiles.hasNext()) {
-              // File already exists
               var existingFile = existingFiles.next();
               var existingSize = existingFile.getSize();
               var newSize = attachmentData.size;
               
-              console.log("File exists:", fileName, "- existing size:", existingSize, "new size:", newSize);
-              
               if (existingSize === newSize) {
                 // Same size, likely duplicate - skip
-                console.log("Skipping duplicate file:", fileName);
                 skippedCount++;
                 skippedFiles.push(fileName);
                 continue;
@@ -2257,43 +2599,54 @@ function buildAddOn(e) {
                 var baseName = fileName.lastIndexOf('.') > -1 ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
                 var newFileName = baseName + "_" + timestamp + fileExtension;
                 
-                console.log("Creating file with new name:", newFileName);
-                file = ticketFolder.createFile(attachmentData.attachment);
-                file.setName(newFileName);
-                finalFileName = newFileName;
-                savedCount++;
-                savedFiles.push(finalFileName);
+                var saveResult = saveAttachmentWithAdvancedDrive(attachmentData.attachment, ticketFolder.getId(), newFileName);
+                
+                if (saveResult.success) {
+                  file = DriveApp.getFileById(saveResult.fileId);
+                  finalFileName = newFileName;
+                  savedCount++;
+                  savedFiles.push(finalFileName);
+                } else {
+                  throw new Error("Failed to save file: " + saveResult.error);
+                }
               }
             } else {
               // File doesn't exist, save normally
-              console.log("Saving new file:", fileName);
-              file = ticketFolder.createFile(attachmentData.attachment);
-              finalFileName = file.getName();
-              savedCount++;
-              savedFiles.push(finalFileName);
+              var saveResult = saveAttachmentWithAdvancedDrive(attachmentData.attachment, ticketFolder.getId(), fileName);
+              
+              if (saveResult.success) {
+                file = DriveApp.getFileById(saveResult.fileId);
+                finalFileName = file.getName();
+                savedCount++;
+                savedFiles.push(finalFileName);
+              } else {
+                throw new Error("Failed to save file: " + saveResult.error);
+              }
             }
           }
-          
-          console.log("Processed:", fileName, "->", finalFileName);
         } catch (saveError) {
-          console.error("Error saving", attachmentData.type || 'regular', "attachment", attachmentData.name, ":", saveError);
+          console.error("❌ Failed to save " + attachmentData.name + ": " + saveError.message);
         }
       }
       
-      console.log("=== SAVE COMPLETE ===");
-      console.log("Saved", savedCount, "files to", finalTicket);
-      console.log("Skipped", skippedCount, "duplicate files");
-      console.log("Files saved:", savedFiles);
-      console.log("Files skipped:", skippedFiles);
+      // Concise summary (verbose details only if enabled)
+      console.log("✅ SAVE COMPLETE: " + savedCount + "/" + selectedAttachments.length + " files saved to " + actualFolderPath);
+      if (skippedCount > 0) {
+        console.log("   ⏭️ Skipped " + skippedCount + " duplicate(s)");
+      }
       
-      // Enhanced notification message with detailed PMO info and subfolder path
+      if (ENABLE_VERBOSE_LOGGING && savedFiles.length > 0) {
+        console.log("   Saved: " + savedFiles.slice(0, 3).join(", ") + (savedFiles.length > 3 ? " +" + (savedFiles.length - 3) + " more" : ""));
+      }
+      
+      // Enhanced notification message with detailed folder info and subfolder path
       var notificationText = "✅ Attachment Save Complete!\n\n";
       
-      // PMO folder information
-      if (pmoResult.created) {
-        notificationText += "📁 New PMO folder created: " + folderResult.name + "\n";
+      // Project folder information
+      if (folderWorkflowResult.created && folderWorkflowResult.created.projectFolder) {
+        notificationText += "📁 New project folder created: " + folderResult.name + "\n";
       } else {
-        notificationText += "📁 PMO project folder: " + folderResult.name + "\n";
+        notificationText += "📁 Project folder: " + folderResult.name + "\n";
       }
       
       // Subfolder information
@@ -2364,49 +2717,23 @@ function buildAddOn(e) {
         var settings = JSON.parse(settingsJson);
         console.log("Parsed settings keys:", Object.keys(settings));
         
-        // Add PMO defaults for existing users who don't have PMO settings
-        if (!settings.pmoWebhookUrl) {
-          console.log("Adding default PMO webhook URL for existing user");
-          settings.pmoWebhookUrl = getDefaultPMOWebhookUrl();
-        }
-        if (!settings.pmoTimeout) {
-          console.log("Adding default PMO timeout for existing user");
-          settings.pmoTimeout = 10000;
-        }
-        if (!settings.pmoRetryAttempts) {
-          console.log("Adding default PMO retry attempts for existing user");
-          settings.pmoRetryAttempts = 2;
-        }
-        
         console.log("Final settings configuration:");
         console.log("- Jira URL:", settings.jiraUrl ? "configured" : "NOT SET");
         console.log("- Jira Token:", settings.jiraToken ? "configured (length: " + settings.jiraToken.length + ")" : "NOT SET");
         console.log("- JQL Query:", settings.jqlQuery ? "configured" : "NOT SET");
-        console.log("- PMO Webhook URL:", settings.pmoWebhookUrl ? "configured" : "NOT SET");
-        console.log("- Trimble Auth Token:", settings.trimbleAuthToken ? "configured (length: " + settings.trimbleAuthToken.length + ")" : "NOT SET");
-        console.log("- PMO Timeout:", settings.pmoTimeout);
-        console.log("- PMO Retry Attempts:", settings.pmoRetryAttempts);
-        console.log("- Using default PMO URL:", settings.pmoWebhookUrl === getDefaultPMOWebhookUrl());
+        console.log("- Customers Folder ID:", getCustomersFolderId());
         
         return settings;
       } else {
         console.log("No existing settings found - returning defaults for new user");
-        var defaultSettings = {
-          pmoWebhookUrl: getDefaultPMOWebhookUrl(),
-          pmoTimeout: 10000,
-          pmoRetryAttempts: 2
-        };
+        var defaultSettings = {};
         console.log("Default settings:", JSON.stringify(defaultSettings));
         return defaultSettings;
       }
     } catch (error) {
       console.error("CRITICAL: Error getting user settings:", error.name, "-", error.message);
       console.error("Settings error stack:", error.stack);
-      return {
-        pmoWebhookUrl: getDefaultPMOWebhookUrl(),
-        pmoTimeout: 10000,
-        pmoRetryAttempts: 2
-      };
+      return {};
     }
   }
   
@@ -2488,7 +2815,7 @@ function buildAddOn(e) {
     // Error explanation
     var errorText = CardService.newTextParagraph()
       .setText("<b>⚠️ Cannot Access Project Folder</b><br><br>" +
-               "The PMO system found the project folder, but you don't have permission to access it yet.");
+               "The project folder was found, but you don't have permission to access it yet.");
     section.addWidget(errorText);
     
     // Folder info
@@ -2548,26 +2875,7 @@ function buildAddOn(e) {
   
   // ===== SUBFOLDER ERROR HANDLING =====
   
-  /**
-   * Get enhanced error message for PMO errors with subfolder context
-   * @param {string} error - The error message
-   * @param {string} ticketKey - The Jira ticket key
-   * @param {string} subfolderPath - The subfolder path (optional)
-   * @returns {string} User-friendly error message
-   */
-  function getPMOSubfolderErrorMessage(error, ticketKey, subfolderPath) {
-    var baseError = getPMOErrorMessage(error, ticketKey); // Use existing function
-    
-    if (subfolderPath && subfolderPath.trim() !== "") {
-      var subfolderError = baseError + "\n\n📁 Additional Context:\n";
-      subfolderError += "• Target subfolder: " + subfolderPath + "\n";
-      subfolderError += "• Subfolder creation was blocked by PMO access issue\n";
-      subfolderError += "• Files will be saved to project root once PMO access is restored";
-      return subfolderError;
-    }
-    
-    return baseError;
-  }
+  // ===== SUBFOLDER ERROR HANDLING =====
   
   /**
    * Get error message for subfolder creation failures
@@ -2577,7 +2885,7 @@ function buildAddOn(e) {
    * @returns {string} User-friendly error message
    */
   function getSubfolderCreationErrorMessage(error, projectFolder, subfolderPath) {
-    var errorMsg = "❌ Cannot create subfolder in PMO project folder\n\n";
+    var errorMsg = "❌ Cannot create subfolder in project folder\n\n";
     errorMsg += "📁 Project Folder: " + projectFolder.getName() + "\n";
     errorMsg += "🎯 Subfolder Path: " + subfolderPath + "\n";
     errorMsg += "📋 Technical Error: " + error + "\n\n";
@@ -2592,219 +2900,60 @@ function buildAddOn(e) {
     return errorMsg;
   }
   
-  // ===== PMO INTEGRATION FUNCTIONS =====
-  
-  /**
-   * Internal function to make PMO webhook request (for retry logic)
-   */
-  function makePMOWebhookRequest(ticketKey, webhookUrl, timeout) {
-    var payload = JSON.stringify({"text": ticketKey});
-    console.log("Sending PMO webhook request:");
-    console.log("- Method: POST");
-    console.log("- URL:", webhookUrl);
-    console.log("- Payload:", payload);
-    console.log("- Timeout:", timeout + "ms");
-    
-    var requestStartTime = new Date().getTime();
-    
-    // Stage 1: Get OAuth token from Trimble auth server
-    console.log("=== STAGE 2: PMO WEBHOOK CALL WITH BEARER TOKEN ===");
-    var oauthToken = getTrimbleOAuthToken();
-    
-    var response = UrlFetchApp.fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + oauthToken
-      },
-      payload: payload,
-      muteHttpExceptions: true,
-      timeout: timeout
-    });
-    
-    var requestDuration = new Date().getTime() - requestStartTime;
-    console.log("PMO webhook request completed in:", requestDuration + "ms");
-    console.log("PMO webhook response code:", response.getResponseCode());
-    console.log("PMO webhook response headers:", JSON.stringify(response.getAllHeaders()));
-    
-    return response;
-  }
-  
-  function getPMOProjectFolder(ticketKey) {
-    try {
-      var settings = getUserSettings();
-      var webhookUrl = getPMOWebhookURL();
-      var maxRetries = settings.pmoRetryAttempts || 2;
-      var timeout = settings.pmoTimeout || 10000;
-      
-      console.log("=== PMO WEBHOOK LOOKUP/CREATE ===");
-      console.log("Timestamp:", new Date().toISOString());
-      console.log("Ticket key:", ticketKey);
-      console.log("PMO Configuration:");
-      console.log("- Webhook URL:", webhookUrl);
-      console.log("- Max retries:", maxRetries);  
-      console.log("- Timeout (ms):", timeout);
-      console.log("- Using default URL:", webhookUrl === getDefaultPMOWebhookUrl());
-      
-      // Check OAuth token status
-      var tokenStatus = getOAuthTokenStatus();
-      console.log("OAuth token status:", tokenStatus.message);
-      
-      if (!webhookUrl || webhookUrl.trim() === '') {
-        console.error("CRITICAL: PMO webhook URL is empty or undefined!");
-        return {
-          success: false,
-          error: 'PMO webhook URL not configured'
-        };
-      }
-      
-      for (var attempt = 1; attempt <= maxRetries; attempt++) {
-        console.log("PMO request attempt", attempt, "of", maxRetries);
-        
-        try {
-          var response = makePMOWebhookRequest(ticketKey, webhookUrl, timeout);
-          var responseCode = response.getResponseCode();
-          
-          // Check for authentication errors (token expiration)
-          if (responseCode === 401 || responseCode === 403) {
-            console.log("🔄 Detected authentication error (code " + responseCode + "), may be expired token");
-            
-            // Try with fresh token (only once per attempt to avoid infinite loops)
-            try {
-              console.log("🔄 Clearing cached token and retrying with fresh token...");
-              clearCachedOAuthToken();
-              var retryResponse = makePMOWebhookRequest(ticketKey, webhookUrl, timeout);
-              
-              if (retryResponse.getResponseCode() === 200) {
-                console.log("✅ Retry with fresh token succeeded");
-                response = retryResponse; // Use the successful retry response
-                responseCode = 200;
-              } else {
-                console.log("❌ Retry with fresh token also failed:", retryResponse.getResponseCode());
-                // Fall through to regular error handling
-              }
-            } catch (retryError) {
-              console.error("❌ Token refresh retry failed:", retryError.message);
-              // Fall through to regular error handling
-            }
-          }
-          
-          if (responseCode === 200) {
-            var responseText = response.getContentText();
-            console.log("PMO webhook response:", responseText);
-            
-            var data = JSON.parse(responseText);
-            
-            if (data && data.length > 0) {
-              var folderid = data[0].folderid;
-              console.log("PMO returned folderid:", folderid, "- type:", typeof folderid);
-              
-              if (folderid && folderid !== 'undefined' && folderid.toString().trim() !== '') {
-                console.log("PMO webhook returned valid folder ID:", folderid);
-                return {
-                  success: true,
-                  folderId: folderid,
-                  created: attempt > 1 // True if folder was created on retry
-                };
-              } else {
-                console.log("PMO webhook returned undefined/empty folder ID on attempt", attempt);
-                
-                if (attempt === maxRetries) {
-                  return {
-                    success: false,
-                    error: 'PMO webhook returned undefined folder ID after ' + maxRetries + ' attempts for ticket: ' + ticketKey
-                  };
-                }
-                
-                // Wait briefly before retry (folder creation might need time)
-                console.log("Waiting 1 second before retry...");
-                Utilities.sleep(1000);
-                continue;
-              }
-            } else {
-              return {
-                success: false,
-                error: 'PMO webhook returned invalid response format for ticket: ' + ticketKey
-              };
-            }
-          } else {
-            // Enhanced HTTP error logging
-            var errorBody = response.getContentText();
-            console.error("PMO webhook HTTP error details:");
-            console.error("- Response code:", response.getResponseCode());
-            console.error("- Response body:", errorBody);
-            console.error("- Response headers:", JSON.stringify(response.getAllHeaders()));
-            console.error("- Request duration:", (new Date().getTime() - requestStartTime) + "ms");
-            
-            return {
-              success: false,
-              error: 'PMO webhook HTTP error: ' + response.getResponseCode() + ' - ' + errorBody
-            };
-          }
-        } catch (requestError) {
-          // Enhanced network error logging
-          console.error("PMO webhook network error on attempt", attempt + ":");
-          console.error("- Error type:", requestError.name || 'Unknown');
-          console.error("- Error message:", requestError.message || 'No message');
-          console.error("- Error stack:", requestError.stack || 'No stack');
-          console.error("- Request duration before error:", (new Date().getTime() - requestStartTime) + "ms");
-          console.error("- Timeout setting:", timeout + "ms");
-          
-          // Check specific error types
-          if (requestError.message && requestError.message.includes('timeout')) {
-            console.error("TIMEOUT ERROR: Request exceeded timeout of", timeout + "ms");
-          } else if (requestError.message && requestError.message.includes('network')) {
-            console.error("NETWORK ERROR: Connection failed to", webhookUrl);
-          }
-          
-          if (attempt === maxRetries) {
-            console.error("PMO webhook failed after all", maxRetries, "retry attempts");
-            return {
-              success: false,
-              error: 'PMO webhook network error after ' + maxRetries + ' attempts: ' + requestError.message
-            };
-          }
-          
-          console.log("Retrying PMO request in 1 second... (attempt", attempt, "of", maxRetries + ")");
-          Utilities.sleep(1000);
-          continue;
-        }
-      }
-      
-    } catch (error) {
-      return {
-        success: false,
-        error: 'PMO webhook error: ' + error.message
-      };
-    }
-  }
+  // ===== FOLDER ACCESS FUNCTIONS =====
   
   function getFolderByIdSafely(folderId) {
     try {
-      console.log("Attempting to access folder with ID:", folderId);
+      verboseLog("Accessing folder: " + folderId);
       
-      var folder = DriveApp.getFolderById(folderId);
+      // Try Advanced Drive API first (supports Shared Drives)
+      var fileMetadata;
+      var folder;
+      var folderName;
       
-      // Test folder access by trying to get name
-      var folderName = folder.getName();
-      console.log("Successfully accessed folder:", folderName);
+      try {
+        fileMetadata = Drive.Files.get(folderId, {
+          supportsAllDrives: true,
+          fields: 'id,name,driveId,parents'
+        });
+        
+        folder = DriveApp.getFolderById(folderId);
+        folderName = fileMetadata.name;
+        
+      } catch (advancedApiError) {
+        // Fallback to standard DriveApp (for My Drive folders)
+        verboseLog("Fallback to DriveApp: " + advancedApiError.message);
+        
+        folder = DriveApp.getFolderById(folderId);
+        folderName = folder.getName();
+      }
+      
+      // Detect if folder is in Shared Drive (simplified - skip hierarchy traversal for performance)
+      var isSharedDrive = false;
+      var sharedDriveName = null;
+      var folderPath = [folderName];
+      
+      // Use Advanced Drive API metadata to detect Shared Drive (fast!)
+      if (fileMetadata && fileMetadata.driveId) {
+        isSharedDrive = true;
+        verboseLog("📂 Shared Drive folder: " + folderName);
+      }
       
       return {
         success: true,
         folder: folder,
-        name: folderName
+        name: folderName,
+        isSharedDrive: isSharedDrive,
+        sharedDriveName: sharedDriveName,
+        folderPath: folderPath.join(" > ")
       };
     } catch (error) {
-      console.error("Cannot access folder with ID", folderId, ":", error.message);
+      console.error("❌ Cannot access folder " + folderId + ": " + error.message);
       return {
         success: false,
         error: 'Cannot access folder (ID: ' + folderId + '): ' + error.message
       };
     }
-  }
-  
-  function getDefaultPMOWebhookUrl() {
-    return 'https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299';
   }
   
   function logDiagnosticInfo() {
@@ -2841,14 +2990,12 @@ function buildAddOn(e) {
       if (settings) {
         console.log("- Jira URL configured:", !!settings.jiraUrl);
         console.log("- Jira Token configured:", !!settings.jiraToken);
-        console.log("- PMO URL configured:", !!settings.pmoWebhookUrl);
-        console.log("- PMO timeout:", settings.pmoTimeout);
-        console.log("- PMO retries:", settings.pmoRetryAttempts);
+        console.log("- Customers Folder ID:", getCustomersFolderId());
       }
       
-      // Log PMO connectivity 
-      console.log("\nPMO connectivity diagnostic:");
-      console.log("- Default PMO URL:", getDefaultPMOWebhookUrl());
+      // Log folder access
+      console.log("\nFolder access diagnostic:");
+      console.log("- Customers Folder ID:", getCustomersFolderId());
       console.log("- URL fetch available:", typeof UrlFetchApp !== 'undefined');
       
       // Log Gmail context (with API access error handling)
@@ -2901,289 +3048,269 @@ function buildAddOn(e) {
     }
   }
   
-  // Permission testing function - run this first if you get OAuth errors
-  function debugTestPermissions() {
-    console.log("=== OAUTH PERMISSIONS DEBUG TEST ===");
-    console.log("Testing all required OAuth scopes...\n");
+  /**
+   * Reauthorization function for users
+   * Run this function to trigger OAuth reauthorization
+   * 
+   * This is useful when:
+   * - OAuth scopes have been added/modified
+   * - User revoked permissions
+   * - Permission errors occur
+   * - Testing access after deployment
+   * 
+   * Usage: Simply run this function from Apps Script Editor
+   */
+  function reauthorizeUser() {
+    console.log("=".repeat(80));
+    console.log("    USER REAUTHORIZATION");
+    console.log("=".repeat(80));
+    console.log("Started:", new Date().toISOString());
+    console.log("\n📋 This function will test all OAuth permissions");
+    console.log("   If permissions are missing, you'll be prompted to reauthorize\n");
     
-    var permissionResults = {
-      gmail: false,
-      drive: false,
-      userinfo: false,
-      urlfetch: false,
-      total: 0,
-      passed: 0
+    var authResults = {
+      timestamp: new Date().toISOString(),
+      user: null,
+      permissions: {},
+      needsReauth: false,
+      errors: []
     };
     
-    // Test Gmail permissions
     try {
-      var quota = GmailApp.getRemainingDailyQuota();
-      console.log("✅ Gmail API: PASSED (quota:", quota + ")");
-      permissionResults.gmail = true;
-      permissionResults.passed++;
-    } catch (error) {
-      console.log("❌ Gmail API: FAILED -", error.message);
-    }
-    permissionResults.total++;
-    
-    // Test Drive permissions
-    try {
-      var storage = DriveApp.getStorageUsed();
-      console.log("✅ Drive API: PASSED (storage used:", storage, "bytes)");
-      permissionResults.drive = true;
-      permissionResults.passed++;
-    } catch (error) {
-      console.log("❌ Drive API: FAILED -", error.message);
-    }
-    permissionResults.total++;
-    
-    // Test user info permissions  
-    try {
-      var email = Session.getActiveUser().getEmail();
-      console.log("✅ User Info API: PASSED (email:", email + ")");
-      permissionResults.userinfo = true;
-      permissionResults.passed++;
-    } catch (error) {
-      console.log("❌ User Info API: FAILED -", error.message);
-      console.log("   Fix: Ensure 'https://www.googleapis.com/auth/userinfo.email' is in OAuth scopes");
-    }
-    permissionResults.total++;
-    
-    // Test external requests (for PMO webhook)
-    try {
-      // Simple test request to check if external requests are allowed
-      if (typeof UrlFetchApp !== 'undefined') {
-        console.log("✅ External Requests: PASSED (UrlFetchApp available)");
-        permissionResults.urlfetch = true;
-        permissionResults.passed++;
-      } else {
-        console.log("❌ External Requests: FAILED (UrlFetchApp not available)");
-      }
-    } catch (error) {
-      console.log("❌ External Requests: FAILED -", error.message);
-    }
-    permissionResults.total++;
-    
-    console.log("\n=== PERMISSION TEST SUMMARY ===");
-    console.log("Passed:", permissionResults.passed, "of", permissionResults.total);
-    if (permissionResults.passed === permissionResults.total) {
-      console.log("🎉 ALL PERMISSIONS OK - Ready for PMO testing");
-    } else {
-      console.log("⚠️  SOME PERMISSIONS MISSING - Check OAuth scopes in appsscript.json");
-      console.log("Required scopes:");
-      console.log("- https://www.googleapis.com/auth/gmail.readonly");
-      console.log("- https://www.googleapis.com/auth/drive");  
-      console.log("- https://www.googleapis.com/auth/userinfo.email");
-      console.log("- https://www.googleapis.com/auth/script.external_request");
-    }
-    
-    return permissionResults;
-  }
-  
-  // Test alternative PMO URLs to diagnose DNS issues
-  function debugTestPMOUrls() {
-    console.log("=== TESTING ALTERNATIVE PMO URLS ===");
-    
-    var testUrls = [
-      "https://n8n-pmo.office.transporeon.com/webhook/ad028ac7-647f-48a8-ba0c-f259d8671299",
-      "https://httpbin.org/post", // Public test endpoint
-      "https://www.google.com",   // Basic connectivity test
-      "https://transporeon.com"   // Company main domain test
-    ];
-    
-    for (var i = 0; i < testUrls.length; i++) {
-      var url = testUrls[i];
-      console.log("\nTesting URL:", url);
-      
+      // Get user info first
+      console.log("👤 Identifying user...");
       try {
-        var startTime = new Date().getTime();
-        var response = UrlFetchApp.fetch(url, {
-          method: 'GET',
+        var userEmail = Session.getActiveUser().getEmail();
+        var userTimezone = Session.getScriptTimeZone();
+        authResults.user = {
+          email: userEmail,
+          timezone: userTimezone
+        };
+        console.log("✅ User:", userEmail);
+        console.log("✅ Timezone:", userTimezone);
+      } catch (userError) {
+        console.log("⚠️  Could not get user info:", userError.message);
+        authResults.errors.push("User info: " + userError.message);
+      }
+      
+      console.log("\n🔐 Testing OAuth Permissions:");
+      console.log("=".repeat(50));
+      
+      // Test 1: Gmail Access
+      console.log("\n1️⃣ Gmail API Access");
+      try {
+        var gmailQuota = GmailApp.getRemainingDailyQuota();
+        console.log("   ✅ GRANTED - Daily quota remaining:", gmailQuota);
+        authResults.permissions.gmail = {
+          granted: true,
+          quota: gmailQuota
+        };
+      } catch (gmailError) {
+        console.log("   ❌ DENIED -", gmailError.message);
+        authResults.permissions.gmail = {
+          granted: false,
+          error: gmailError.message
+        };
+        authResults.needsReauth = true;
+        authResults.errors.push("Gmail: " + gmailError.message);
+      }
+      
+      // Test 2: Drive Access
+      console.log("\n2️⃣ Google Drive API Access");
+      try {
+        var driveQuota = DriveApp.getStorageUsed();
+        var driveLimit = DriveApp.getStorageLimit();
+        console.log("   ✅ GRANTED - Storage used:", driveQuota, "of", driveLimit, "bytes");
+        authResults.permissions.drive = {
+          granted: true,
+          storageUsed: driveQuota,
+          storageLimit: driveLimit
+        };
+      } catch (driveError) {
+        console.log("   ❌ DENIED -", driveError.message);
+        authResults.permissions.drive = {
+          granted: false,
+          error: driveError.message
+        };
+        authResults.needsReauth = true;
+        authResults.errors.push("Drive: " + driveError.message);
+      }
+      
+      // Test 3: External Requests (for API calls)
+      console.log("\n3️⃣ External Requests (UrlFetch)");
+      try {
+        if (typeof UrlFetchApp === 'undefined') {
+          throw new Error("UrlFetchApp not available");
+        }
+        // Test with a safe endpoint
+        var testResponse = UrlFetchApp.fetch("https://www.google.com", {
+          method: 'HEAD',
           muteHttpExceptions: true,
           timeout: 5000
         });
-        var duration = new Date().getTime() - startTime;
-        
-        console.log("✅ SUCCESS - Response code:", response.getResponseCode());
-        console.log("- Duration:", duration + "ms");
-        console.log("- Headers:", Object.keys(response.getAllHeaders()).length, "headers received");
-        
-      } catch (error) {
-        var duration = new Date().getTime() - startTime;
-        console.log("❌ FAILED - Error:", error.message);
-        console.log("- Duration:", duration + "ms");
-        console.log("- Error type:", error.name);
-        
-        if (error.message.includes("DNS")) {
-          console.log("- Issue: DNS resolution failed - hostname not reachable from Google's network");
-        } else if (error.message.includes("timeout")) {
-          console.log("- Issue: Network timeout - server may be slow or blocking requests");
-        }
-      }
-    }
-    
-    console.log("\n=== URL TEST ANALYSIS ===");
-    console.log("If Google/httpbin work but PMO fails → Corporate firewall blocking external access");  
-    console.log("If all URLs fail → Google Apps Script network issue");
-    console.log("If transporeon.com works but n8n-pmo subdomain fails → Internal-only subdomain");
-    
-    return "URL connectivity test completed - check logs above";
-  }
-  
-  // Simple test to check if Google Apps Script can reach external sites
-  function debugTestBasicConnectivity() {
-    console.log("=== BASIC CONNECTIVITY TEST ===");
-    
-    try {
-      console.log("Testing basic internet connectivity from Google Apps Script...");
-      
-      var response = UrlFetchApp.fetch("https://httpbin.org/get", {
-        method: 'GET',
-        timeout: 5000,
-        muteHttpExceptions: true
-      });
-      
-      if (response.getResponseCode() === 200) {
-        console.log("✅ INTERNET CONNECTIVITY: WORKING");
-        console.log("Google Apps Script can reach external websites");
-        console.log("The PMO DNS error is specific to n8n-pmo.office.transporeon.com");
-        console.log("\n🔍 This confirms the issue is:");
-        console.log("• Corporate firewall blocking external access to PMO server");
-        console.log("• Internal-only hostname not resolvable from external networks");
-        console.log("• PMO server configured for internal access only");
-        return true;
-      } else {
-        console.log("⚠️ INTERNET CONNECTIVITY: LIMITED - HTTP " + response.getResponseCode());
-        return false;
+        console.log("   ✅ GRANTED - Test request successful");
+        authResults.permissions.urlfetch = {
+          granted: true,
+          testResponseCode: testResponse.getResponseCode()
+        };
+      } catch (fetchError) {
+        console.log("   ❌ DENIED -", fetchError.message);
+        authResults.permissions.urlfetch = {
+          granted: false,
+          error: fetchError.message
+        };
+        authResults.needsReauth = true;
+        authResults.errors.push("UrlFetch: " + fetchError.message);
       }
       
-    } catch (error) {
-      console.log("❌ INTERNET CONNECTIVITY: FAILED");
-      console.log("Error:", error.message);
-      console.log("Google Apps Script may have network restrictions");
-      return false;
-    }
-  }
-  
-  // Manual testing function for PMO connectivity (can be run directly from Apps Script editor)
-  function debugTestPMOConnectivity() {
-    console.log("=== MANUAL PMO CONNECTIVITY DEBUG TEST ===");
-    
-    try {
-      // Test permissions first
-      console.log("Step 1: Testing OAuth permissions...");
-      var permissionTest = debugTestPermissions();
-      
-      if (permissionTest.passed !== permissionTest.total) {
-        console.log("⚠️  Cannot proceed with PMO test - permission issues detected");
-        console.log("Fix permissions first, then run debugTestPMOConnectivity() again");
-        return { success: false, error: "OAuth permissions not configured" };
-      }
-      
-      console.log("\nStep 2: Testing URL connectivity...");  
-      debugTestPMOUrls();
-      
-      console.log("\nStep 3: Running system diagnostics...");
-      logDiagnosticInfo();
-      
-      console.log("\nStep 4: Testing PMO webhook connectivity...");
-      console.log("=== TESTING PMO WEBHOOK CONNECTIVITY ===");
-      
-      // Test with a debug ticket
-      var testTicket = "CXPRODELIVERY-DEBUG-" + new Date().getTime();
-      console.log("Testing with ticket:", testTicket);
-      
-      var result = getPMOProjectFolder(testTicket);
-      
-      console.log("\n=== PMO TEST RESULTS ===");
-      console.log("Success:", result.success);
-      if (result.success) {
-        console.log("Folder ID:", result.folderId);
-        console.log("Created:", result.created);
+      // Test 4: Script Properties (for settings storage)
+      console.log("\n4️⃣ Script Properties Access");
+      try {
+        var testValue = "test_" + new Date().getTime();
+        var props = PropertiesService.getUserProperties();
+        props.setProperty('_reauth_test', testValue);
+        var retrieved = props.getProperty('_reauth_test');
+        props.deleteProperty('_reauth_test');
         
-        // Test folder access
-        console.log("\n=== TESTING FOLDER ACCESS ===");
-        var folderResult = getFolderByIdSafely(result.folderId);
-        console.log("Folder access success:", folderResult.success);
-        if (folderResult.success) {
-          console.log("Folder name:", folderResult.name);
+        if (retrieved === testValue) {
+          console.log("   ✅ GRANTED - Properties read/write working");
+          authResults.permissions.properties = { granted: true };
         } else {
-          console.log("Folder access error:", folderResult.error);
+          throw new Error("Property read/write mismatch");
         }
-      } else {
-        console.log("PMO Error:", result.error);
+      } catch (propError) {
+        console.log("   ❌ DENIED -", propError.message);
+        authResults.permissions.properties = {
+          granted: false,
+          error: propError.message
+        };
+        authResults.errors.push("Properties: " + propError.message);
       }
       
-      console.log("=== END MANUAL PMO TEST ===");
-      return result;
+      // Summary
+      console.log("\n" + "=".repeat(80));
+      console.log("    REAUTHORIZATION SUMMARY");
+      console.log("=".repeat(80));
+      
+      var grantedCount = 0;
+      var totalCount = 0;
+      
+      for (var perm in authResults.permissions) {
+        totalCount++;
+        if (authResults.permissions[perm].granted) {
+          grantedCount++;
+        }
+      }
+      
+      console.log("\n📊 RESULTS:");
+      console.log("  Permissions Granted:", grantedCount, "of", totalCount);
+      console.log("  Gmail:", authResults.permissions.gmail ? (authResults.permissions.gmail.granted ? "✅" : "❌") : "⚠️");
+      console.log("  Drive:", authResults.permissions.drive ? (authResults.permissions.drive.granted ? "✅" : "❌") : "⚠️");
+      console.log("  UrlFetch:", authResults.permissions.urlfetch ? (authResults.permissions.urlfetch.granted ? "✅" : "❌") : "⚠️");
+      console.log("  Properties:", authResults.permissions.properties ? (authResults.permissions.properties.granted ? "✅" : "❌") : "⚠️");
+      
+      if (grantedCount === totalCount) {
+        console.log("\n🎉 SUCCESS: All permissions granted!");
+        console.log("  ✅ Your add-on is fully authorized");
+        console.log("  ✅ Ready to save attachments to Google Drive");
+        console.log("  ✅ No reauthorization needed");
+      } else {
+        console.log("\n⚠️ WARNING: Some permissions missing");
+        console.log("\n📝 TO FIX:");
+        console.log("  1. Check that appsscript.json contains all required scopes");
+        console.log("  2. Redeploy the add-on");
+        console.log("  3. Users will be prompted to reauthorize on next use");
+        console.log("\n  Required scopes:");
+        console.log("    - https://www.googleapis.com/auth/gmail.readonly");
+        console.log("    - https://www.googleapis.com/auth/gmail.addons.execute");
+        console.log("    - https://www.googleapis.com/auth/gmail.addons.current.message.readonly");
+        console.log("    - https://www.googleapis.com/auth/drive");
+        console.log("    - https://www.googleapis.com/auth/script.external_request");
+        console.log("    - https://www.googleapis.com/auth/userinfo.email");
+      }
+      
+      if (authResults.errors.length > 0) {
+        console.log("\n❌ ERRORS ENCOUNTERED:");
+        for (var i = 0; i < authResults.errors.length; i++) {
+          console.log("  " + (i + 1) + ". " + authResults.errors[i]);
+        }
+      }
+      
+      console.log("\n💡 NOTE:");
+      console.log("  • If you just updated OAuth scopes, redeploy the add-on");
+      console.log("  • Users will be automatically prompted to reauthorize");
+      console.log("  • This happens when they next open Gmail and use the add-on");
+      console.log("  • No manual user action needed beyond accepting the new permissions");
+      
+      return authResults;
       
     } catch (error) {
-      console.error("Manual PMO test failed:", error.message);
-      console.error("Error stack:", error.stack);
+      console.error("\n❌ REAUTHORIZATION FAILED:");
+      console.error("  Error:", error.message);
+      console.error("  Stack:", error.stack);
+      
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+  
+  /**
+   * Force reauthorization by accessing all required scopes
+   * This triggers the OAuth prompt if permissions are missing
+   * 
+   * Usage: Run this function, then accept the authorization prompt
+   */
+  function forceReauthorization() {
+    console.log("=".repeat(80));
+    console.log("    FORCE REAUTHORIZATION");
+    console.log("=".repeat(80));
+    console.log("\n🔄 This will trigger OAuth reauthorization if needed");
+    console.log("   You may see an authorization prompt - please accept it\n");
+    
+    try {
+      // Access each service to trigger OAuth
+      console.log("1. Accessing Gmail API...");
+      GmailApp.getRemainingDailyQuota();
+      console.log("   ✅ Gmail access confirmed");
+      
+      console.log("\n2. Accessing Drive API...");
+      DriveApp.getStorageUsed();
+      console.log("   ✅ Drive access confirmed");
+      
+      console.log("\n3. Testing external requests...");
+      UrlFetchApp.fetch("https://www.google.com", {
+        method: 'HEAD',
+        muteHttpExceptions: true,
+        timeout: 5000
+      });
+      console.log("   ✅ External requests confirmed");
+      
+      console.log("\n4. Accessing user info...");
+      Session.getActiveUser().getEmail();
+      console.log("   ✅ User info access confirmed");
+      
+      console.log("\n" + "=".repeat(80));
+      console.log("🎉 REAUTHORIZATION COMPLETE");
+      console.log("=".repeat(80));
+      console.log("\n✅ All permissions have been verified");
+      console.log("✅ Your add-on is fully authorized");
+      console.log("✅ You can now use the Gmail Attachment Saver");
+      
+      return { success: true, message: "Reauthorization successful" };
+      
+    } catch (error) {
+      console.error("\n❌ REAUTHORIZATION ERROR:");
+      console.error("  Message:", error.message);
+      console.error("\n💡 SOLUTION:");
+      console.error("  1. Accept the authorization prompt when it appears");
+      console.error("  2. Make sure all required scopes are in appsscript.json");
+      console.error("  3. Redeploy the add-on if scopes were changed");
+      
       return { success: false, error: error.message };
     }
-  }
-  
-  function getPMOErrorMessage(error, ticketKey) {
-    var baseMessage = "❌ Cannot save attachments for " + ticketKey;
-    
-    if (error.includes("DNS error")) {
-      return baseMessage + "\n\n🌐 DNS Resolution Error:\n" + 
-             "• PMO server hostname cannot be resolved from Google's network\n" +
-             "• This suggests the PMO server (n8n-pmo.office.transporeon.com) is behind corporate firewall\n" +
-             "• External access may be blocked for security reasons\n\n" +
-             "🔧 Next Steps:\n" +
-             "• Contact Transporeon IT/PMO team about external access\n" +
-             "• Verify the PMO webhook URL is correct\n" +
-             "• Check if an alternative public endpoint exists\n\n" +
-             "💡 This is an infrastructure issue, not a configuration problem";
-    }
-    
-    if (error.includes("timeout") || error.includes("network")) {
-      return baseMessage + "\n\n🌐 Network Issue:\n" + 
-             "• PMO system is temporarily unreachable\n" +
-             "• Please check your internet connection\n" +
-             "• Try again in a few moments\n\n" +
-             "💡 If problem persists, contact IT support";
-    } 
-    
-    if (error.includes("HTTP 404") || error.includes("HTTP 500")) {
-      return baseMessage + "\n\n🔧 PMO System Issue:\n" + 
-             "• PMO webhook is temporarily unavailable\n" +
-             "• This is likely a temporary service issue\n" +
-             "• Please try again in a few minutes\n\n" +
-             "💡 If problem persists, contact PMO team";
-    }
-    
-    if (error.includes("HTTP 403") || error.includes("unauthorized")) {
-      return baseMessage + "\n\n🔐 Access Issue:\n" + 
-             "• You may not have permission to create project folders\n" +
-             "• Check with your project manager\n" +
-             "• Verify the ticket number is correct\n\n" +
-             "💡 Contact PMO team if you should have access";
-    }
-    
-    if (error.includes("undefined folder ID")) {
-      return baseMessage + "\n\n⏱️ PMO Folder Creation Issue:\n" + 
-             "• PMO system is processing your project folder\n" +
-             "• Folder creation took longer than expected\n" +
-             "• Please try again in a moment\n\n" +
-             "💡 The folder may be created now - retry to check";
-    }
-    
-    if (error.includes("invalid response format")) {
-      return baseMessage + "\n\n📋 PMO Response Issue:\n" + 
-             "• PMO system returned an unexpected response\n" +
-             "• This may be a temporary issue\n" +
-             "• Please try again\n\n" +
-             "💡 If error continues, contact IT support";
-    }
-    
-    // Generic error message
-    return baseMessage + "\n\n⚠️ PMO Integration Error:\n" +
-           "• " + error + "\n" +
-           "• Please try again in a few moments\n\n" +
-           "💡 If problem persists, contact IT or PMO support";
   }
   
   // ===== HELPER FUNCTIONS =====
@@ -3271,7 +3398,7 @@ function buildAddOn(e) {
     }
   }
   
-  // ===== SUBFOLDER MANAGEMENT FOR PMO PROJECTS =====
+  // ===== SUBFOLDER MANAGEMENT FOR PROJECTS =====
   
   /**
    * Get standardized project subfolder configuration
@@ -3304,84 +3431,67 @@ function buildAddOn(e) {
   
   /**
    * Create or access project subfolder with support for nested paths
-   * @param {Folder} parentFolder - The PMO project root folder
+   * @param {Folder} parentFolder - The project root folder
    * @param {string} subfolderPath - Path like "01_System_Design" or "04_Project_Documentation/Project_Management"
    * @returns {Object} Result object with folder info
    */
-  function getOrCreateProjectSubfolder(parentFolder, subfolderPath) {
-    try {
-      console.log("=== SUBFOLDER CREATION/ACCESS ===");
-      console.log("Parent folder:", parentFolder.getName(), "ID:", parentFolder.getId());
-      console.log("Requested subfolder path:", subfolderPath);
-      
-      if (!subfolderPath || subfolderPath.trim() === "") {
-        // Return parent folder for root level saves
-        console.log("No subfolder specified, using project root");
-        return {
-          success: true,
-          folder: parentFolder,
-          path: "Project Root",
-          created: false
-        };
-      }
-      
-      // Split path for nested folders (e.g., "04_Project_Documentation/Project_Management")
-      var pathParts = subfolderPath.split('/');
-      var currentFolder = parentFolder;
-      var createdFolders = [];
-      var fullPath = "";
-      
-      for (var i = 0; i < pathParts.length; i++) {
-        var folderName = pathParts[i].trim();
-        if (!folderName) continue;
-        
-        fullPath += (fullPath ? "/" : "") + folderName;
-        console.log("Processing folder level", (i + 1) + ":", folderName);
-        
-        // Check if folder already exists
-        var existingFolders = currentFolder.getFoldersByName(folderName);
-        
-        if (existingFolders.hasNext()) {
-          currentFolder = existingFolders.next();
-          console.log("✓ Found existing folder:", folderName);
-          
-          // Check for duplicates (multiple folders with same name)
-          if (existingFolders.hasNext()) {
-            console.warn("⚠ WARNING: Multiple folders found with name:", folderName);
-          }
-        } else {
-          // Create new folder
-          currentFolder = currentFolder.createFolder(folderName);
-          createdFolders.push(folderName);
-          console.log("✓ Created new folder:", folderName);
-        }
-      }
-      
-      console.log("=== SUBFOLDER RESULT ===");
-      console.log("Final path:", fullPath);
-      console.log("Created folders:", createdFolders.length > 0 ? createdFolders.join(", ") : "None");
-      console.log("Final folder ID:", currentFolder.getId());
-      
+function getOrCreateProjectSubfolder(parentFolder, subfolderPath) {
+  try {
+    if (!subfolderPath || subfolderPath.trim() === "") {
       return {
         success: true,
-        folder: currentFolder,
-        path: fullPath,
-        created: createdFolders.length > 0,
-        createdFolders: createdFolders
-      };
-      
-    } catch (error) {
-      console.error("=== SUBFOLDER CREATION ERROR ===");
-      console.error("Error:", error.message);
-      console.error("Stack:", error.stack);
-      
-      return {
-        success: false,
-        error: "Failed to create/access subfolder: " + error.message,
-        path: subfolderPath
+        folder: parentFolder,
+        path: "Project Root",
+        created: false
       };
     }
+    
+    // Split path for nested folders (e.g., "04_Project_Documentation/Project_Management")
+    var pathParts = subfolderPath.split('/');
+    var currentFolder = parentFolder;
+    var createdFolders = [];
+    var fullPath = "";
+    
+    for (var i = 0; i < pathParts.length; i++) {
+      var folderName = pathParts[i].trim();
+      if (!folderName) continue;
+      
+      fullPath += (fullPath ? "/" : "") + folderName;
+      
+      // Check if folder already exists
+      var existingFolders = currentFolder.getFoldersByName(folderName);
+      
+      if (existingFolders.hasNext()) {
+        currentFolder = existingFolders.next();
+      } else {
+        // Create new folder
+        currentFolder = currentFolder.createFolder(folderName);
+        createdFolders.push(folderName);
+      }
+    }
+    
+    if (createdFolders.length > 0) {
+      console.log("📁 Created subfolder(s): " + createdFolders.join(", "));
+    }
+    
+    return {
+      success: true,
+      folder: currentFolder,
+      path: fullPath,
+      created: createdFolders.length > 0,
+      createdFolders: createdFolders
+    };
+    
+  } catch (error) {
+    console.error("❌ Subfolder error: " + error.message);
+    
+    return {
+      success: false,
+      error: "Failed to create/access subfolder: " + error.message,
+      path: subfolderPath
+    };
   }
+}
   
   /**
    * Validate subfolder selection against allowed paths
@@ -3771,25 +3881,17 @@ function buildAddOn(e) {
    */
   function copyGoogleDocToFolder(docLink, targetFolder) {
     try {
-      console.log("Copying Google Doc to target folder:", docLink.title);
-      
       // Extract document ID from Google Docs URL
       var docId = extractGoogleDocId(docLink.url);
       if (!docId) {
-        console.error("Could not extract document ID from URL:", docLink.url);
-        // Fallback to shortcut creation if ID extraction fails
         return createFallbackShortcut(docLink, targetFolder);
       }
-      
-      console.log("Extracted document ID:", docId);
       
       // Get the Google Doc file from Drive
       var driveFile;
       try {
         driveFile = DriveApp.getFileById(docId);
       } catch (driveError) {
-        console.error("Could not access Google Drive file:", driveError.message);
-        // Fallback to shortcut creation if file access fails
         return createFallbackShortcut(docLink, targetFolder);
       }
       
@@ -3797,10 +3899,8 @@ function buildAddOn(e) {
       var fileName;
       if (docLink.emailSubject && docLink.emailSubject.trim() !== '') {
         fileName = sanitizeFileName(docLink.emailSubject);
-        console.log("Using email subject as filename:", fileName);
       } else {
         fileName = docLink.title || driveFile.getName();
-        console.log("Using original Google Doc name:", fileName);
       }
       
       // Check if a file with the same name already exists in the target folder
@@ -3810,7 +3910,7 @@ function buildAddOn(e) {
         
         // Check if it's the same file (same ID)
         if (existingFile.getId() === docId) {
-          console.log("Google Doc already exists in target folder:", fileName);
+          verboseLog("Google Doc already exists: " + fileName);
           return existingFile;
         }
         
@@ -3822,25 +3922,18 @@ function buildAddOn(e) {
         } else {
           fileName = fileName + '_' + timestamp;
         }
-        console.log("Renamed to avoid conflict:", fileName);
       }
       
       // Create a copy of the Google Doc in the target folder
-      var copiedFile;
       try {
-        copiedFile = driveFile.makeCopy(fileName, targetFolder);
-        console.log("Successfully copied Google Doc to target folder as:", fileName);
+        var copiedFile = driveFile.makeCopy(fileName, targetFolder);
         return copiedFile;
         
       } catch (copyError) {
-        console.error("Could not copy Google Doc:", copyError.message);
-        // Fallback to shortcut creation if copy fails
         return createFallbackShortcut(docLink, targetFolder);
       }
       
     } catch (error) {
-      console.error("Error copying Google Doc:", error.message);
-      // Fallback to shortcut creation
       return createFallbackShortcut(docLink, targetFolder);
     }
   }
@@ -3856,23 +3949,12 @@ function buildAddOn(e) {
       var sanitized = subject
         .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid filename characters
         .replace(/\s+/g, ' ')          // Replace multiple spaces with single space
-        .trim();                       // Remove leading/trailing whitespace
+        .trim()                        // Remove leading/trailing whitespace
+        .substring(0, 100);            // Limit length
       
-      // Limit length to reasonable filename size
-      if (sanitized.length > 100) {
-        sanitized = sanitized.substring(0, 100).trim();
-      }
-      
-      // Ensure we have a non-empty filename
-      if (sanitized === '') {
-        return 'Google Doc';
-      }
-      
-      console.log("Sanitized filename:", sanitized);
-      return sanitized;
+      return sanitized || 'Google Doc';
       
     } catch (error) {
-      console.error("Error sanitizing filename:", error.message);
       return 'Google Doc';
     }
   }
@@ -3882,11 +3964,11 @@ function buildAddOn(e) {
     try {
       // Handle different Google Docs URL formats
       var patterns = [
-        /\/document\/d\/([a-zA-Z0-9-_]+)/,  // Documents
+        /\/document\/d\/([a-zA-Z0-9-_]+)/,     // Documents
         /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/, // Sheets  
         /\/presentation\/d\/([a-zA-Z0-9-_]+)/, // Slides
-        /\/file\/d\/([a-zA-Z0-9-_]+)/,        // Generic Drive files
-        /id=([a-zA-Z0-9-_]+)/                 // ID parameter format
+        /\/file\/d\/([a-zA-Z0-9-_]+)/,         // Generic Drive files
+        /id=([a-zA-Z0-9-_]+)/                  // ID parameter format
       ];
       
       for (var i = 0; i < patterns.length; i++) {
@@ -3896,10 +3978,8 @@ function buildAddOn(e) {
         }
       }
       
-      console.log("No matching pattern found for URL:", url);
       return null;
     } catch (error) {
-      console.error("Error extracting Google Doc ID:", error.message);
       return null;
     }
   }
@@ -3908,44 +3988,31 @@ function buildAddOn(e) {
   // Fallback function to create shortcut if download fails
   function createFallbackShortcut(docLink, targetFolder) {
     try {
-      console.log("Creating fallback shortcut for:", docLink.title);
-      
       // Create a shortcut file content pointing to the Google Doc
       var shortcutContent = '[InternetShortcut]\nURL=' + docLink.url + '\n';
       
       // Use email subject as filename if available, otherwise use original title
-      var baseName;
-      if (docLink.emailSubject && docLink.emailSubject.trim() !== '') {
-        baseName = sanitizeFileName(docLink.emailSubject);
-        console.log("Using email subject for shortcut filename:", baseName);
-      } else {
-        baseName = docLink.title || 'Google Doc';
-        console.log("Using original title for shortcut filename:", baseName);
-      }
+      var baseName = (docLink.emailSubject && docLink.emailSubject.trim() !== '') 
+        ? sanitizeFileName(docLink.emailSubject) 
+        : (docLink.title || 'Google Doc');
       
       var fileName = baseName + '.url';
       
       // Handle duplicate names
       var existingFiles = targetFolder.getFilesByName(fileName);
       if (existingFiles.hasNext()) {
-        var timestamp = new Date().getTime();
-        var nameParts = fileName.split('.');
-        if (nameParts.length > 1) {
-          fileName = nameParts.slice(0, -1).join('.') + '_' + timestamp + '.' + nameParts[nameParts.length - 1];
-        } else {
-          fileName = fileName + '_' + timestamp;
-        }
+        fileName = baseName + '_' + new Date().getTime() + '.url';
       }
       
       // Create the shortcut file
       var blob = Utilities.newBlob(shortcutContent, 'text/plain', fileName);
       var file = targetFolder.createFile(blob);
       
-      console.log("Created fallback shortcut file:", fileName);
+      verboseLog("Created shortcut: " + fileName);
       return file;
       
     } catch (error) {
-      console.error("Error creating fallback shortcut:", error.message);
+      console.error("❌ Shortcut creation failed: " + error.message);
       throw error;
     }
   }
@@ -4022,3 +4089,53 @@ function buildAddOn(e) {
       return null;
     }
   }
+
+/**
+ * Save attachment using Advanced Drive API v3 with Shared Drive support
+ * This version uses Drive.Files.create() with supportsAllDrives: true
+ * 
+ * @param {Blob} attachment - The attachment blob to save
+ * @param {string} folderId - The Google Drive folder ID
+ * @param {string} fileName - Optional custom file name
+ * @returns {Object} - File object or error
+ */
+function saveAttachmentWithAdvancedDrive(attachment, folderId, fileName) {
+  try {
+    var finalFileName = fileName || attachment.getName();
+    
+    // Create file metadata
+    var fileMetadata = {
+      name: finalFileName,
+      parents: [folderId]
+    };
+    
+    // Create blob
+    var blob = attachment.copyBlob();
+    
+    // Use Advanced Drive Service with Shared Drive support
+    var startTime = new Date().getTime();
+    var file = Drive.Files.create(fileMetadata, blob, {
+      supportsAllDrives: true,  // Critical for Shared Drives!
+      fields: 'id,name,size,mimeType,driveId'
+    });
+    var duration = new Date().getTime() - startTime;
+    
+    verboseLog("✅ Saved: " + file.name + " (" + duration + "ms)");
+    
+    return {
+      success: true,
+      file: file,
+      fileId: file.id,
+      fileName: file.name,
+      duration: duration
+    };
+    
+  } catch (error) {
+    console.error("❌ Drive API save failed: " + error.message);
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}

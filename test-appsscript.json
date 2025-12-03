@@ -1,7 +1,0 @@
-{
-  "timeZone": "Europe/Berlin",
-  "runtimeVersion": "V8",
-  "oauthScopes": [
-    "https://www.googleapis.com/auth/drive"
-  ]
-}

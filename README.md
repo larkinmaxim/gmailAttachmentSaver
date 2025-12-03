@@ -6,10 +6,20 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 
 - **Gmail Integration**: Contextual Gmail add-on that appears when viewing emails with attachments
 - **Jira Integration**: Connects to Jira to fetch your active Technical Project Manager tickets
-- **PMO Integration**: Automatically connects to centralized PMO-managed project folders (replaces local folder creation)
+- **Smart Folder Lookup**: Automatically parses Jira ticket summaries to find/create customer and project folders
+- **Subfolder Organization**: Save attachments to organized subfolders:
+
+📁 01_System_Design
+📁 02_Meet_Recordings
+📁 03_Correspondence
+📁 04_Project_Documentation
+  📁 Project_Management
+  📁 Carrier_Onboarding
+
 - **Attachment Selection**: Select specific attachments to save, with memory across sessions
 - **Duplicate Handling**: Intelligently handles duplicate files by checking size and adding timestamps when needed
-- **Settings Management**: Secure storage of Jira credentials, PMO webhook configuration, and custom JQL queries
+- **Shared Drive Support**: Full support for Google Shared Drives using Advanced Drive API v3
+- **Settings Management**: Secure storage of Jira credentials and custom JQL queries
 
 ## Setup
 
@@ -25,6 +35,7 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
    - Create a new project or use an existing one
    - Copy the code from `Code.js` into your script
    - Copy the configuration from `appsscript.json`
+   - Run `setupScriptProperties()` once to configure default settings
 
 2. **Configure Integration Settings**:
    - Open the add-on in Gmail
@@ -33,10 +44,8 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
      - Enter your Jira URL (e.g., `https://your-company.atlassian.net`)
      - Enter your [Jira API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
      - Customize JQL query if needed (default focuses on TPM tickets)
-   - **PMO Configuration**:
-     - PMO webhook URL (pre-configured with default)
-     - Timeout and retry settings
-   - Test both connections
+   - **Test Connection**: Click "Test Jira Connection" to verify settings
+   - **Test Folder Lookup**: Click "Test Folder Lookup" to verify folder access
 
 ### Required OAuth Scopes
 
@@ -53,25 +62,41 @@ The add-on requires the following permissions:
 2. **Click the add-on** in the sidebar
 3. **Select your Jira ticket** from the dropdown or enter manually
 4. **Choose attachments** to save (checkboxes grouped by file type)
-5. **Click "Save to PMO Folder"** to save selected attachments
+5. **(Optional) Select a subfolder** for better organization
+6. **Click "Save to Project Folder"** to save selected attachments
 
-### PMO Folder Integration
+### Smart Folder Organization
 
-Attachments are automatically saved to PMO-managed project folders:
+The add-on automatically parses Jira ticket summaries to determine the correct folder location:
+
+**Jira Summary Format:**
 ```
-PMO System/
-└── [PMO-Created Project Folders]/
-    └── CXPRODELIVERY-{ticket-number}/     (Auto-created by PMO)
+[Customer ID] Customer Name | Project Type | Description
+Example: 620254 - Frosta AG | TP Essential | Ocean Visibility and TPE
+```
+
+**Folder Structure:**
+```
+Customers Folder/
+└── 620254 - Frosta AG/
+    └── CXPRODELIVERY-1234/
+        ├── 01_System_Design/
+        ├── 02_Meet_Recordings/
+        ├── 03_Correspondence/
+        ├── 04_Project_Documentation/
+        │   ├── Project_Management/
+        │   ├── Custom_Bundle/
+        │   └── Carrier_Onboarding/
         ├── document1.pdf
-        ├── image1.png
-        └── ...
+        └── image1.png
 ```
 
 **Benefits:**
-- **Centralized Management**: All project files in PMO-standardized locations
-- **Automatic Creation**: PMO system creates folders as needed
-- **Team Access**: Shared access across project team members
-- **Enterprise Compliance**: Meets organizational data governance requirements
+- **Automatic Folder Detection**: Parses ticket summaries to find correct folders
+- **Intelligent Creation**: Creates customer and project folders if they don't exist
+- **Subfolder Organization**: Save to standardized subfolders for better structure
+- **Team Access**: Folders can be shared across team members
+- **Shared Drive Support**: Works with Google Shared Drives
 
 ## Features in Detail
 
@@ -92,14 +117,14 @@ PMO System/
 - **TPM Focus**: Default query targets Technical Project Manager assignments
 - **Connection Testing**: Verify Jira connectivity and credentials
 - **Secure Storage**: API tokens stored securely in user properties
+- **Summary Parsing**: Automatically extracts customer and project information from ticket summaries
 
-### PMO Integration
-- **Centralized Folders**: Automatic connection to PMO-managed project folders
-- **Webhook Integration**: Real-time folder lookup and creation via PMO webhook
-- **Auto-Creation**: PMO system creates project folders automatically when needed
-- **Retry Logic**: Intelligent retry handling for folder creation timing issues
-- **Enhanced Error Handling**: User-friendly error messages for PMO system issues
-- **Connection Testing**: Comprehensive PMO webhook connectivity testing
+### Smart Folder Management
+- **Automatic Detection**: Parses Jira summary to find customer and project folders
+- **Intelligent Search**: Caches folder searches for improved performance
+- **Auto-Creation**: Creates folder structures when they don't exist
+- **Subfolder Support**: Organize files into standardized project subfolders
+- **Shared Drive Compatible**: Full support for Google Shared Drives via Advanced Drive API v3
 
 ## Default JQL Query
 
@@ -114,16 +139,23 @@ AND "Technical Project Manager" in (currentUser())
 ## Development
 
 ### File Structure
-- `Code.js` - Main Google Apps Script code
+- `Code.js` - Main Google Apps Script code (4142 lines)
 - `appsscript.json` - Project configuration and permissions
-- `README.md` - Documentation
-- `.gitignore` - Git ignore patterns
+- `README.md` - Main documentation
+- `Documentation/` - Detailed process and technical documentation
+  - Process guides (Jira integration, folder lookup, attachment handling)
+  - Function reference
+  - Feature implementation summaries
+  - `archive/` - Historical troubleshooting documentation
 
 ### Key Functions
 - `buildAddOn()` - Main entry point for Gmail add-on
 - `showTicketDetails()` - Dynamic ticket selection handler
-- `saveSelectedAttachmentsToGDrive()` - Core save functionality
+- `saveSelectedAttachmentsToGDrive()` - Core save functionality with subfolder support
 - `getMyJiraProjects()` - Jira API integration
+- `completeJiraToFolderWorkflowWithCreate()` - Smart folder lookup/creation workflow
+- `parseJiraSummaryForFolders()` - Jira summary parser for folder names
+- `saveAttachmentWithAdvancedDrive()` - Shared Drive compatible file saving
 
 ## License
 
