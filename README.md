@@ -34,15 +34,6 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
    - **Test Connection**: Click "Test Jira Connection" to verify settings
    - **Test Folder Lookup**: Click "Test Folder Lookup" to verify folder access
 
-### Required OAuth Scopes
-
-The add-on requires the following permissions:
-- `https://www.googleapis.com/auth/gmail.readonly` - Read Gmail messages
-- `https://www.googleapis.com/auth/drive` - Create folders and files in Google Drive
-- `https://www.googleapis.com/auth/script.locale` - Localization
-- `https://www.googleapis.com/auth/gmail.addons.execute` - Gmail add-on functionality
-- `https://www.googleapis.com/auth/script.external_request` - Jira API calls
-
 ## Usage
 
 1. **Open an email with attachments** in Gmail
