@@ -1,43 +1,46 @@
 {
-    "timeZone": "Europe/Berlin",
-    "runtimeVersion": "V8",
-    "dependencies": {
-      "enabledAdvancedServices": [
+  "timeZone": "Europe/Berlin",
+  "runtimeVersion": "V8",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Gmail",
+        "version": "v1",
+        "serviceId": "gmail"
+      },
+      {
+        "userSymbol": "Drive",
+        "version": "v3",
+        "serviceId": "drive"
+      }
+    ]
+  },
+  "addOns": {
+    "common": {
+      "name": "Jira Attachment Saver",
+      "logoUrl": "https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png",
+      "useLocaleFromApp": true
+    },
+    "gmail": {
+      "contextualTriggers": [
         {
-          "userSymbol": "Gmail",
-          "version": "v1",
-          "serviceId": "gmail"
-        },
-        {
-          "userSymbol": "Drive",
-          "version": "v3",
-          "serviceId": "drive"
+          "unconditional": {},
+          "onTriggerFunction": "buildAddOn"
         }
       ]
-    },
-    "addOns": {
-      "common": {
-        "name": "Jira Attachment Saver",
-        "logoUrl": "https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png",
-        "useLocaleFromApp": true
-      },
-      "gmail": {
-        "contextualTriggers": [
-          {
-            "unconditional": {},
-            "onTriggerFunction": "buildAddOn"
-          }
-        ]
-      }
-    },
-    "oauthScopes": [
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/script.locale",
-      "https://www.googleapis.com/auth/gmail.addons.execute",
-      "https://www.googleapis.com/auth/script.external_request",
-      "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
-      "https://www.googleapis.com/auth/gmail.addons.current.message.readonly",
-      "https://www.googleapis.com/auth/userinfo.email"
-    ]
-  }
+    }
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/script.locale",
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
+    "https://www.googleapis.com/auth/gmail.addons.current.message.readonly",
+    "https://www.googleapis.com/auth/userinfo.email"
+  ],
+  "urlFetchWhitelist": [
+    "https://support.transporeon.com/"
+  ]
+}

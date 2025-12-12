@@ -37,10 +37,10 @@ A Google Apps Script Gmail add-on that integrates with Jira to save email attach
 ## Usage
 
 1. **Open an email with attachments** in Gmail
-2. **Click the add-on** in the sidebar
+2. **Click the add-on** in the sidebar (labeled "Jira Project")
 3. **Select your Jira ticket** from the dropdown or enter manually
 4. **Choose attachments** to save (checkboxes grouped by file type)
-5. **(Optional) Select a subfolder** for better organization
+5. **(Optional) Select project sub folder** for better organization
 6. **Click "Save to Project Folder"** to save selected attachments
 
 ### Smart Folder Organization

@@ -968,7 +968,7 @@ function buildAddOn(e) {
     try {
       var card = CardService.newCardBuilder();
       var section = CardService.newCardSection()
-        .setHeader("Jira TPM Attachment Saver");
+        .setHeader("Jira Project");
       
       // Check if settings are configured
       console.log("Checking user settings configuration...");
@@ -1286,7 +1286,7 @@ function buildAddOn(e) {
       
       // ===== SUBFOLDER SELECTION & SAVE BUTTON SECTION =====
       var saveSection = CardService.newCardSection()
-        .setHeader("📁 Save Attachments");
+        .setHeader("📁 Select project sub folder");
       
       // Check if subfolder feature is enabled
       var useEnhancedUI = shouldUseEnhancedUI();
@@ -2031,15 +2031,70 @@ function buildAddOn(e) {
       var detailsSection = CardService.newCardSection()
         .setHeader("📋 Selected Ticket Details");
       
+      // Get Jira URL for ticket link
+      var settings = getUserSettings();
+      var jiraTicketUrl = settings.jiraUrl + '/browse/' + selectedTicket.key;
+      
+      // Add clickable ticket link button
+      var ticketLinkButton = CardService.newTextButton()
+        .setText("🔗 " + selectedTicket.key)
+        .setOpenLink(CardService.newOpenLink()
+          .setUrl(jiraTicketUrl)
+          .setOpenAs(CardService.OpenAs.FULL_SIZE)
+          .setOnClose(CardService.OnClose.NOTHING));
+      detailsSection.addWidget(ticketLinkButton);
+      
+      // Add ticket details as text
       var statusEmoji = getStatusEmoji(selectedTicket.status);
-      var detailsText = statusEmoji + " **" + selectedTicket.key + "**\n\n";
-      detailsText += "📝 **Summary:**\n" + selectedTicket.summary + "\n\n";
-      detailsText += "📊 **Status:** " + selectedTicket.status + "\n";
-      detailsText += "🏷️ **Type:** " + selectedTicket.issueType;
+      var detailsText = "\n📝 Summary:\n" + selectedTicket.summary + "\n\n";
+      detailsText += "📊 Status: " + statusEmoji + " " + selectedTicket.status + "\n";
+      detailsText += "🏷️ Type: " + selectedTicket.issueType;
       
       var detailsParagraph = CardService.newTextParagraph().setText(detailsText);
       detailsSection.addWidget(detailsParagraph);
-      console.log("Ticket details section created");
+      console.log("Ticket details section created with clickable link");
+      
+      // Add customer folder link to details
+      console.log("Looking up customer folder for ticket:", selectedTicket.key);
+      try {
+        // Search for existing customer folder (don't create if missing)
+        var folderResult = completeJiraToFolderWorkflowWithCreate(selectedTicket.key, false);
+        
+        if (folderResult.success && folderResult.customerFolder && folderResult.customerFolder.exists) {
+          console.log("✅ Customer folder found:", folderResult.customerFolder.name);
+          console.log("   URL:", folderResult.customerFolder.url);
+          
+          // Add visual separator
+          detailsSection.addWidget(CardService.newTextParagraph()
+            .setText("\n─────────────────────"));
+          
+          // Add customer folder as a clickable button
+          var customerFolderButton = CardService.newTextButton()
+            .setText("📁 Open Customer Folder")
+            .setOpenLink(CardService.newOpenLink()
+              .setUrl(folderResult.customerFolder.url)
+              .setOpenAs(CardService.OpenAs.FULL_SIZE)
+              .setOnClose(CardService.OnClose.NOTHING));
+          
+          // Add label and button
+          detailsSection.addWidget(CardService.newTextParagraph()
+            .setText("Customer Folder:\n" + folderResult.customerFolder.name));
+          detailsSection.addWidget(customerFolderButton);
+          
+          console.log("✅ Customer folder link added to details");
+        } else {
+          console.log("⚠️ Customer folder not found (will be created on first upload)");
+          
+          // Show expected folder name
+          if (folderResult.customerFolder && folderResult.customerFolder.suggestedName) {
+            detailsSection.addWidget(CardService.newTextParagraph()
+              .setText("\n─────────────────────\nCustomer Folder:\n_" + folderResult.customerFolder.suggestedName + "_\n_(will be created on first upload)_"));
+          }
+        }
+      } catch (folderError) {
+        console.error("❌ Error looking up customer folder:", folderError.message);
+        // Don't fail the whole card if folder lookup fails
+      }
       
       // Handle Gmail context for attachments (threadId already determined above)
       
@@ -2232,6 +2287,10 @@ function buildAddOn(e) {
         console.log("No threadId, skipping attachment processing");
       }
       
+      // Add sections to card in the correct order
+      console.log("Adding main section to card...");
+      card.addSection(mainSection);
+      
       // ===== SUBFOLDER SELECTION & SAVE BUTTON =====
       // Check if subfolder feature is enabled
       var useEnhancedUI = shouldUseEnhancedUI();
@@ -2239,7 +2298,7 @@ function buildAddOn(e) {
       if (useEnhancedUI) {
         // Create separate section for subfolder selection
         var subfolderSection = CardService.newCardSection()
-          .setHeader("📁 Save Attachments");
+          .setHeader("📁 Select project sub folder");
         
         // Dropdown without title to avoid text overlap
         var subfolderDropdown = CardService.newSelectionInput()
@@ -2268,6 +2327,7 @@ function buildAddOn(e) {
               .setParameters({threadId: threadId})));
         
         subfolderSection.addWidget(saveButtonSet);
+        console.log("Adding save attachments section to card...");
         card.addSection(subfolderSection);
       } else {
         // Legacy UI - simple save button
@@ -2280,10 +2340,8 @@ function buildAddOn(e) {
         mainSection.addWidget(saveButtonSet);
       }
       
-      // Add sections to card in the correct order
-      console.log("Adding main section to card...");
-      card.addSection(mainSection);
-      console.log("Adding details section to card...");
+      // Add details section LAST (at the very bottom)
+      console.log("Adding details section to card (at bottom)...");
       card.addSection(detailsSection);
       
       console.log("All sections added. Built card with ticket details for:", selectedTicket.key);
