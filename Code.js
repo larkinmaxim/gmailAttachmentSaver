@@ -1471,38 +1471,6 @@ function buildAddOn(e) {
     
     card.addSection(buttonSection);
     
-    // Advanced Settings section
-    var advancedSection = CardService.newCardSection()
-      .setHeader("⚙️ Advanced Settings")
-      .setCollapsible(true)
-      .setNumUncollapsibleWidgets(0);
-    
-    // Log Level dropdown
-    var currentLogLevel = getLogLevel();
-    var logLevelDropdown = CardService.newSelectionInput()
-      .setType(CardService.SelectionInputType.DROPDOWN)
-      .setFieldName("logLevel")
-      .setTitle("Log Level")
-      .addItem("ERROR - Only errors", "0", currentLogLevel === 0)
-      .addItem("WARN - Errors & warnings", "1", currentLogLevel === 1)
-      .addItem("INFO - Normal (recommended)", "2", currentLogLevel === 2)
-      .addItem("DEBUG - Verbose (troubleshooting)", "3", currentLogLevel === 3);
-    advancedSection.addWidget(logLevelDropdown);
-    
-    // Log level help text
-    var logLevelHelp = CardService.newTextParagraph()
-      .setText("💡 Tip: Use DEBUG level only when troubleshooting.\nLower log levels improve performance.");
-    advancedSection.addWidget(logLevelHelp);
-    
-    // Clear Cache button
-    var clearCacheButton = CardService.newButtonSet()
-      .addButton(CardService.newTextButton()
-        .setText("🗑️ Clear Folder Cache")
-        .setOnClickAction(CardService.newAction().setFunctionName("clearAllFolderCache")));
-    advancedSection.addWidget(clearCacheButton);
-    
-    card.addSection(advancedSection);
-    
     // Current settings display (if configured)
     if (settings.jiraUrl && settings.jiraToken) {
       var currentSection = CardService.newCardSection()
