@@ -136,6 +136,18 @@ var DEFAULT_LOG_LEVEL = LOG_LEVELS.INFO;
 var ENABLE_VERBOSE_LOGGING = false;
 
 /**
+ * Maximum number of attachment checkboxes to display per extension group
+ * Gmail add-on cards have widget limits - too many checkboxes cause card truncation
+ */
+var MAX_ATTACHMENTS_PER_GROUP = 10;
+
+/**
+ * Maximum total attachments to display in the card
+ * Beyond this limit, show a message to user
+ */
+var MAX_TOTAL_ATTACHMENTS_DISPLAY = 50;
+
+/**
  * Cache duration for folder lookups (in milliseconds)
  * Default: 5 minutes = 300000ms
  */
@@ -1138,15 +1150,35 @@ function buildAddOn(e) {
       console.log("Gmail context found, loading attachments...");
       
       // Get attachments and Google Docs links from the email thread
+      var extensionSectionsToAdd = []; // Declare outside conditionals for proper scope
       try {
         var threadId = e.gmail.threadId;
+        var messageId = e.gmail && e.gmail.messageId ? e.gmail.messageId : null;
         var thread = GmailApp.getThreadById(threadId);
         var messages = thread.getMessages();
         var allAttachments = [];
         var allGoogleDocsLinks = [];
         
-        for (var i = 0; i < messages.length; i++) {
-          var message = messages[i];
+        console.log("Thread has", messages.length, "messages");
+        if (messageId) {
+          console.log("Current message ID:", messageId);
+        }
+        
+        // If we have a specific messageId, find and use only that message
+        // Otherwise, use all messages in the thread (old behavior)
+        var messagesToProcess = messages;
+        if (messageId) {
+          for (var i = 0; i < messages.length; i++) {
+            if (messages[i].getId() === messageId) {
+              messagesToProcess = [messages[i]];
+              console.log("Found current message at index", i, "- using only this message's attachments");
+              break;
+            }
+          }
+        }
+        
+        for (var i = 0; i < messagesToProcess.length; i++) {
+          var message = messagesToProcess[i];
           var attachments = message.getAttachments();
           
           // Process regular attachments
@@ -1178,6 +1210,7 @@ function buildAddOn(e) {
         
         // Combine regular attachments and Google Docs links
         var combinedAttachments = allAttachments.concat(allGoogleDocsLinks);
+        console.log("Found", combinedAttachments.length, "attachments in", messagesToProcess.length === 1 ? "current message" : "entire thread");
         
                 if (combinedAttachments.length > 0) {
             // Group attachments by file extension (including Google Docs links)
@@ -1217,11 +1250,21 @@ function buildAddOn(e) {
             // Sort extensions alphabetically for consistent display
             var sortedExtensions = Object.keys(attachmentsByExtension).sort();
             
+            // Track total widgets to prevent exceeding Gmail card limits
+            var totalWidgetsCreated = 0;
+            var totalAttachmentsSkipped = 0;
+            
             // Create a section for each file extension
             for (var extIndex = 0; extIndex < sortedExtensions.length; extIndex++) {
               var extension = sortedExtensions[extIndex];
               var attachmentsInGroup = attachmentsByExtension[extension];
               var count = extensionCounts[extension];
+              
+              // Stop creating sections if we've hit the total limit
+              if (totalWidgetsCreated >= MAX_TOTAL_ATTACHMENTS_DISPLAY) {
+                totalAttachmentsSkipped += count;
+                continue;
+              }
               
               // Create section header with extension and count (show total in first section)
               var extDisplayName = extension === 'no-extension' ? 'Files without extension' : 
@@ -1234,10 +1277,16 @@ function buildAddOn(e) {
               var extensionSection = CardService.newCardSection()
                 .setHeader(headerText)
                 .setCollapsible(true)
-                .setNumUncollapsibleWidgets(count > 5 ? 2 : count); // Show first 2 if more than 5 files
+                .setNumUncollapsibleWidgets(Math.min(count, 2)); // Show first 2 items uncollapsed
               
-              // Add checkboxes for each attachment in this extension group
-              for (var j = 0; j < attachmentsInGroup.length; j++) {
+              // Limit checkboxes per group to prevent card truncation
+              var itemsToShow = Math.min(attachmentsInGroup.length, MAX_ATTACHMENTS_PER_GROUP);
+              var remainingBudget = MAX_TOTAL_ATTACHMENTS_DISPLAY - totalWidgetsCreated;
+              itemsToShow = Math.min(itemsToShow, remainingBudget);
+              var skippedInGroup = attachmentsInGroup.length - itemsToShow;
+              
+              // Add checkboxes for each attachment in this extension group (limited)
+              for (var j = 0; j < itemsToShow; j++) {
                 var attachmentData = attachmentsInGroup[j];
                 var attachment = attachmentData.attachment;
                 var originalIndex = attachmentData.index;
@@ -1264,9 +1313,24 @@ function buildAddOn(e) {
                   .addItem(displayText, originalIndex.toString(), isSelected);
                 
                 extensionSection.addWidget(checkbox);
+                totalWidgetsCreated++;
               }
               
-              card.addSection(extensionSection);
+              // Show message if some attachments in this group were skipped
+              if (skippedInGroup > 0) {
+                var moreText = CardService.newTextParagraph()
+                  .setText("<font color=\"#888888\"><i>... and " + skippedInGroup + " more " + extension.toUpperCase() + " files</i></font>");
+                extensionSection.addWidget(moreText);
+                totalAttachmentsSkipped += skippedInGroup;
+              }
+              
+              // Don't add section yet - will be added after main section
+              extensionSectionsToAdd.push(extensionSection);
+            }
+            
+            // Add warning if many attachments were skipped
+            if (totalAttachmentsSkipped > 0) {
+              console.log("Skipped " + totalAttachmentsSkipped + " attachments due to card widget limits");
             }
           } else {
           var noAttachSection = CardService.newCardSection()
@@ -1281,8 +1345,15 @@ function buildAddOn(e) {
         console.error("Error loading attachments:", attachmentError);
       }
       
-      // Add main section to card first
+      // Add main section to card FIRST
       card.addSection(section);
+      
+      // Now add attachment sections in order (if any)
+      if (extensionSectionsToAdd.length > 0) {
+        for (var i = 0; i < extensionSectionsToAdd.length; i++) {
+          card.addSection(extensionSectionsToAdd[i]);
+        }
+      }
       
       // ===== SUBFOLDER SELECTION & SAVE BUTTON SECTION =====
       var saveSection = CardService.newCardSection()
@@ -1940,7 +2011,8 @@ function buildAddOn(e) {
       
       // Main section with dropdown
       console.log("Creating main section...");
-      var mainSection = CardService.newCardSection();
+      var mainSection = CardService.newCardSection()
+        .setHeader("🎫 Ticket Selection");
       
       // Recreate dropdown with current selection
       console.log("Creating ticket dropdown...");
@@ -1993,6 +2065,10 @@ function buildAddOn(e) {
         .setValue(ticketNumber);
       mainSection.addWidget(ticketInput);
       console.log("Manual ticket input added");
+      
+      // Add main section to card NOW (before attachments)
+      console.log("Adding main section to card...");
+      card.addSection(mainSection);
       
       // Create ticket details section
       console.log("Creating ticket details section...");
@@ -2069,14 +2145,32 @@ function buildAddOn(e) {
       if (threadId) {
         console.log("Processing attachments for threadId:", threadId);
         try {
+          var messageId = e.gmail && e.gmail.messageId ? e.gmail.messageId : null;
           var thread = GmailApp.getThreadById(threadId);
           var messages = thread.getMessages();
           var allAttachments = [];
           var allGoogleDocsLinks = [];
           console.log("Found", messages.length, "messages in thread");
           
-          for (var i = 0; i < messages.length; i++) {
-            var message = messages[i];
+          if (messageId) {
+            console.log("Current message ID:", messageId);
+          }
+          
+          // If we have a specific messageId, find and use only that message
+          // Otherwise, use all messages in the thread (old behavior)
+          var messagesToProcess = messages;
+          if (messageId) {
+            for (var i = 0; i < messages.length; i++) {
+              if (messages[i].getId() === messageId) {
+                messagesToProcess = [messages[i]];
+                console.log("Found current message at index", i, "- using only this message's attachments");
+                break;
+              }
+            }
+          }
+          
+          for (var i = 0; i < messagesToProcess.length; i++) {
+            var message = messagesToProcess[i];
             var attachments = message.getAttachments();
             console.log("Message", i + 1, "has", attachments.length, "attachments");
             
@@ -2110,6 +2204,7 @@ function buildAddOn(e) {
           
           // Combine regular attachments and Google Docs links
           var combinedAttachments = allAttachments.concat(allGoogleDocsLinks);
+          console.log("Found", combinedAttachments.length, "attachments in", messagesToProcess.length === 1 ? "current message" : "entire thread");
           
           console.log("Total attachments and Google Docs links found:", combinedAttachments.length);
           
@@ -2181,11 +2276,22 @@ function buildAddOn(e) {
             var sortedExtensions = Object.keys(attachmentsByExtension).sort();
             console.log("Attachment extensions found:", sortedExtensions);
             
+            // Track total widgets to prevent exceeding Gmail card limits
+            var totalWidgetsCreated = 0;
+            var totalAttachmentsSkipped = 0;
+            
             // Create a section for each file extension
             for (var extIndex = 0; extIndex < sortedExtensions.length; extIndex++) {
               var extension = sortedExtensions[extIndex];
               var attachmentsInGroup = attachmentsByExtension[extension];
               var count = extensionCounts[extension];
+              
+              // Stop creating sections if we've hit the total limit
+              if (totalWidgetsCreated >= MAX_TOTAL_ATTACHMENTS_DISPLAY) {
+                totalAttachmentsSkipped += count;
+                console.log("Skipping extension group", extension, "- widget limit reached");
+                continue;
+              }
               
               console.log("Processing extension group:", extension, "with", count, "files");
               
@@ -2200,10 +2306,16 @@ function buildAddOn(e) {
               var extensionSection = CardService.newCardSection()
                 .setHeader(headerText)
                 .setCollapsible(true)
-                .setNumUncollapsibleWidgets(count > 5 ? 2 : count); // Show first 2 if more than 5 files
+                .setNumUncollapsibleWidgets(Math.min(count, 2)); // Show first 2 items uncollapsed
               
-              // Add checkboxes for each attachment in this extension group
-              for (var j = 0; j < attachmentsInGroup.length; j++) {
+              // Limit checkboxes per group to prevent card truncation
+              var itemsToShow = Math.min(attachmentsInGroup.length, MAX_ATTACHMENTS_PER_GROUP);
+              var remainingBudget = MAX_TOTAL_ATTACHMENTS_DISPLAY - totalWidgetsCreated;
+              itemsToShow = Math.min(itemsToShow, remainingBudget);
+              var skippedInGroup = attachmentsInGroup.length - itemsToShow;
+              
+              // Add checkboxes for each attachment in this extension group (limited)
+              for (var j = 0; j < itemsToShow; j++) {
                 var attachmentData = attachmentsInGroup[j];
                 var attachment = attachmentData.attachment;
                 var originalIndex = attachmentData.index;
@@ -2238,10 +2350,24 @@ function buildAddOn(e) {
                   .addItem(displayText, originalIndex.toString(), isSelected);
                 
                 extensionSection.addWidget(checkbox);
+                totalWidgetsCreated++;
+              }
+              
+              // Show message if some attachments in this group were skipped
+              if (skippedInGroup > 0) {
+                var moreText = CardService.newTextParagraph()
+                  .setText("<font color=\"#888888\"><i>... and " + skippedInGroup + " more " + extension.toUpperCase() + " files</i></font>");
+                extensionSection.addWidget(moreText);
+                totalAttachmentsSkipped += skippedInGroup;
               }
               
               console.log("Adding", extension, "section to card");
               card.addSection(extensionSection);
+            }
+            
+            // Log warning if attachments were skipped
+            if (totalAttachmentsSkipped > 0) {
+              console.log("Skipped " + totalAttachmentsSkipped + " attachments due to card widget limits");
             }
             
             console.log("All attachment sections added to card");
@@ -2254,10 +2380,6 @@ function buildAddOn(e) {
       } else {
         console.log("No threadId, skipping attachment processing");
       }
-      
-      // Add sections to card in the correct order
-      console.log("Adding main section to card...");
-      card.addSection(mainSection);
       
       // ===== SUBFOLDER SELECTION & SAVE BUTTON =====
       // Check if subfolder feature is enabled
@@ -2384,13 +2506,32 @@ function buildAddOn(e) {
       console.log("Loading attachments from thread:", threadId);
       
       // Get all attachments and Google Docs links from the thread
+      var messageId = e.gmail && e.gmail.messageId ? e.gmail.messageId : null;
       var thread = GmailApp.getThreadById(threadId);
       var messages = thread.getMessages();
       var allAttachments = [];
       var allGoogleDocsLinks = [];
       
-      for (var i = 0; i < messages.length; i++) {
-        var message = messages[i];
+      console.log("Thread has", messages.length, "messages");
+      if (messageId) {
+        console.log("Current message ID:", messageId);
+      }
+      
+      // If we have a specific messageId, find and use only that message
+      // Otherwise, use all messages in the thread (old behavior)
+      var messagesToProcess = messages;
+      if (messageId) {
+        for (var i = 0; i < messages.length; i++) {
+          if (messages[i].getId() === messageId) {
+            messagesToProcess = [messages[i]];
+            console.log("Found current message at index", i, "- using only this message's attachments");
+            break;
+          }
+        }
+      }
+      
+      for (var i = 0; i < messagesToProcess.length; i++) {
+        var message = messagesToProcess[i];
         var attachments = message.getAttachments();
         
         // Process regular attachments
