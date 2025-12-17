@@ -116,7 +116,7 @@ Before you begin:
 - [ ] **App Basics**:
   - [ ] Name: "Jira Attachment Saver"
   - [ ] Description (from guide)
-  - [ ] Icon (128x128px)
+  - [ ] Icon 128x128px and 32X32px and 220x140 all mandatory
   - [ ] Category: Productivity
 - [ ] **Extensions**:
   - [ ] Add Extension → Gmail Add-on

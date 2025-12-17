@@ -417,19 +417,30 @@ function getCachedOrSearchFolder(cacheKey, parentFolderId, searchPattern) {
 }
 
 /**
- * Clear folder cache for a specific customer or all
- * @param {string} customerId - Optional customer ID to clear, or null for all
+ * Clear folder cache for a specific customer and/or ticket
+ * @param {string} customerId - Optional customer ID to clear
+ * @param {string} ticketKey - Optional ticket key to clear (e.g., "TICKET-123")
  */
-function clearFolderCache(customerId) {
+function clearFolderCache(customerId, ticketKey) {
   try {
     var cache = CacheService.getUserCache();
+    var clearedKeys = [];
+    
     if (customerId) {
       cache.remove("customer_" + customerId);
-      cache.remove("project_" + customerId);
-      console.log("Cleared cache for customer:", customerId);
+      clearedKeys.push("customer_" + customerId);
+    }
+    
+    // Project folders are cached with ticket key, not customer ID
+    if (ticketKey) {
+      cache.remove("project_" + ticketKey);
+      clearedKeys.push("project_" + ticketKey);
+    }
+    
+    if (clearedKeys.length > 0) {
+      console.log("Cleared cache keys:", clearedKeys.join(", "));
     } else {
-      // Can't clear all in Apps Script, but individual keys can be removed
-      console.log("Cache cleared for specified keys");
+      console.log("No cache keys specified to clear");
     }
   } catch (error) {
     console.error("Error clearing cache:", error.message);
@@ -2678,13 +2689,16 @@ function buildAddOn(e) {
         // If folder was deleted (in Trash), clear the cache so next attempt re-searches
         if (folderResult.isTrashed) {
           console.log("🗑️ Folder is in Trash - clearing cache to force re-search");
-          // Clear cache for this customer/project
+          // Clear cache for both customer folder and project folder
+          var customerId = null;
           if (folderWorkflowResult.customerFolder && folderWorkflowResult.customerFolder.name) {
-            var customerId = folderWorkflowResult.customerFolder.name.match(/^\d+/);
-            if (customerId) {
-              clearFolderCache(customerId[0]);
+            var customerIdMatch = folderWorkflowResult.customerFolder.name.match(/^\d+/);
+            if (customerIdMatch) {
+              customerId = customerIdMatch[0];
             }
           }
+          // Pass both customerId and finalTicket to clear the correct cache keys
+          clearFolderCache(customerId, finalTicket);
           
           // Show specific error for trashed folder
           return CardService.newActionResponseBuilder()
