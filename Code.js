@@ -2675,6 +2675,24 @@ function buildAddOn(e) {
         console.error("  Error:", folderResult.error);
         console.error("\n⏹️ PROCESS STOPPED: Cannot save files without folder access");
         
+        // If folder was deleted (in Trash), clear the cache so next attempt re-searches
+        if (folderResult.isTrashed) {
+          console.log("🗑️ Folder is in Trash - clearing cache to force re-search");
+          // Clear cache for this customer/project
+          if (folderWorkflowResult.customerFolder && folderWorkflowResult.customerFolder.name) {
+            var customerId = folderWorkflowResult.customerFolder.name.match(/^\d+/);
+            if (customerId) {
+              clearFolderCache(customerId[0]);
+            }
+          }
+          
+          // Show specific error for trashed folder
+          return CardService.newActionResponseBuilder()
+            .setNotification(CardService.newNotification()
+              .setText("❌ Folder was deleted!\n\n" + folderResult.error + "\n\nThe cache has been cleared. Please try again - the addon will search for the folder again."))
+            .build();
+        }
+        
         // Build and show request access card
         var requestAccessCard = buildRequestAccessCard(finalTicket, folderWorkflowResult.projectFolder.id, folderResult.error);
         
@@ -3081,8 +3099,18 @@ function buildAddOn(e) {
       try {
         fileMetadata = Drive.Files.get(folderId, {
           supportsAllDrives: true,
-          fields: 'id,name,driveId,parents'
+          fields: 'id,name,driveId,parents,trashed'
         });
+        
+        // Check if folder is in Trash
+        if (fileMetadata.trashed) {
+          console.error("❌ Folder is in Trash: " + folderId);
+          return {
+            success: false,
+            error: 'Folder "' + fileMetadata.name + '" has been deleted (in Trash). Please select a different folder or restore it from Trash.',
+            isTrashed: true
+          };
+        }
         
         folder = DriveApp.getFolderById(folderId);
         folderName = fileMetadata.name;
