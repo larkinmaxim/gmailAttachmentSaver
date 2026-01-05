@@ -23,7 +23,21 @@ function setupScriptProperties() {
       
       // Logging configuration
       // 0 = ERROR, 1 = WARN, 2 = INFO (default), 3 = DEBUG
-      'DEFAULT_LOG_LEVEL': '2'
+      'DEFAULT_LOG_LEVEL': '2',
+      
+      // BigQuery configuration for meeting transcript logging
+      // Configure these values with your GCP project details
+      'BIGQUERY_PROJECT_ID': 'transporeon-gmail-addon-prod',
+      'BIGQUERY_DATASET_ID': 'addon_logs',
+      'BIGQUERY_TABLE_ID': 'meeting_transcript_logs',
+      'BIGQUERY_LOGGING_ENABLED': 'true',
+      
+      // Service Account configuration for BigQuery authentication
+      // These must be set manually with actual values from your service account JSON key
+      'SERVICE_ACCOUNT_EMAIL': 'gmail-addon-bigquery@transporeon-gmail-addon-prod.iam.gserviceaccount.com',
+      // IMPORTANT: Set SERVICE_ACCOUNT_PRIVATE_KEY separately using setServiceAccountKey() function
+      // Do NOT put the private key here in plain text
+      'SERVICE_ACCOUNT_PRIVATE_KEY': ''
     });
     
     console.log("✅ Script properties configured successfully:");
@@ -31,6 +45,12 @@ function setupScriptProperties() {
     console.log("  - SETTINGS_STORAGE_KEY: " + scriptProperties.getProperty('SETTINGS_STORAGE_KEY'));
     console.log("  - CUSTOMERS_FOLDER_ID: " + scriptProperties.getProperty('CUSTOMERS_FOLDER_ID'));
     console.log("  - DEFAULT_LOG_LEVEL: " + scriptProperties.getProperty('DEFAULT_LOG_LEVEL') + " (" + getLogLevelName(parseInt(scriptProperties.getProperty('DEFAULT_LOG_LEVEL'), 10)) + ")");
+    console.log("  - BIGQUERY_PROJECT_ID: " + scriptProperties.getProperty('BIGQUERY_PROJECT_ID'));
+    console.log("  - BIGQUERY_DATASET_ID: " + scriptProperties.getProperty('BIGQUERY_DATASET_ID'));
+    console.log("  - BIGQUERY_TABLE_ID: " + scriptProperties.getProperty('BIGQUERY_TABLE_ID'));
+    console.log("  - BIGQUERY_LOGGING_ENABLED: " + scriptProperties.getProperty('BIGQUERY_LOGGING_ENABLED'));
+    console.log("  - SERVICE_ACCOUNT_EMAIL: " + scriptProperties.getProperty('SERVICE_ACCOUNT_EMAIL'));
+    console.log("  - SERVICE_ACCOUNT_PRIVATE_KEY: " + (scriptProperties.getProperty('SERVICE_ACCOUNT_PRIVATE_KEY') ? '[CONFIGURED]' : '[NOT SET - Run setServiceAccountKey()]'));
     
     return true;
     
@@ -105,6 +125,130 @@ function getCustomersFolderId() {
   }
   
   return folderId;
+}
+
+// ===== BIGQUERY CONFIGURATION =====
+
+/**
+ * Get BigQuery Project ID from Script Properties
+ * @returns {string|null} GCP Project ID or null if not configured
+ */
+function getBigQueryProjectId() {
+  var properties = PropertiesService.getScriptProperties();
+  return properties.getProperty('BIGQUERY_PROJECT_ID');
+}
+
+/**
+ * Get BigQuery Dataset ID from Script Properties
+ * @returns {string} Dataset ID (default: 'addon_logs')
+ */
+function getBigQueryDatasetId() {
+  var properties = PropertiesService.getScriptProperties();
+  return properties.getProperty('BIGQUERY_DATASET_ID') || 'addon_logs';
+}
+
+/**
+ * Get BigQuery Table ID from Script Properties
+ * @returns {string} Table ID (default: 'meeting_transcript_logs')
+ */
+function getBigQueryTableId() {
+  var properties = PropertiesService.getScriptProperties();
+  return properties.getProperty('BIGQUERY_TABLE_ID') || 'meeting_transcript_logs';
+}
+
+/**
+ * Check if BigQuery logging is enabled and properly configured
+ * @returns {boolean} True if BigQuery logging is enabled and all required config is present
+ */
+function isBigQueryLoggingEnabled() {
+  var properties = PropertiesService.getScriptProperties();
+  var enabled = properties.getProperty('BIGQUERY_LOGGING_ENABLED');
+  var projectId = properties.getProperty('BIGQUERY_PROJECT_ID');
+  var serviceEmail = properties.getProperty('SERVICE_ACCOUNT_EMAIL');
+  var privateKey = properties.getProperty('SERVICE_ACCOUNT_PRIVATE_KEY');
+  
+  // Logging is enabled only if:
+  // 1. Explicitly enabled
+  // 2. Project ID is configured (not placeholder)
+  // 3. Service account email is configured (not placeholder)
+  // 4. Private key is set
+  return enabled === 'true' && 
+         projectId && projectId !== 'your-gcp-project-id' &&
+         serviceEmail && !serviceEmail.includes('your-service-account') &&
+         privateKey && privateKey.length > 0;
+}
+
+/**
+ * Get Service Account Email from Script Properties
+ * @returns {string|null} Service account email or null if not configured
+ */
+function getServiceAccountEmail() {
+  var properties = PropertiesService.getScriptProperties();
+  return properties.getProperty('SERVICE_ACCOUNT_EMAIL');
+}
+
+/**
+ * Get Service Account Private Key from Script Properties
+ * @returns {string|null} Private key or null if not configured
+ */
+function getServiceAccountPrivateKey() {
+  var properties = PropertiesService.getScriptProperties();
+  return properties.getProperty('SERVICE_ACCOUNT_PRIVATE_KEY');
+}
+
+/**
+ * Securely set the Service Account Private Key
+ * Run this function once after downloading your service account JSON key file
+ * 
+ * Usage:
+ * 1. Open your service account JSON key file
+ * 2. Copy the entire "private_key" value (including -----BEGIN/END PRIVATE KEY-----)
+ * 3. Call this function with the key as parameter
+ * 
+ * @param {string} privateKey - The private key from your service account JSON
+ */
+function setServiceAccountKey(privateKey) {
+  if (!privateKey || typeof privateKey !== 'string') {
+    console.error("❌ Invalid private key provided");
+    return false;
+  }
+  
+  if (!privateKey.includes('-----BEGIN') || !privateKey.includes('PRIVATE KEY-----')) {
+    console.error("❌ Private key appears to be invalid. It should start with '-----BEGIN PRIVATE KEY-----'");
+    return false;
+  }
+  
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    properties.setProperty('SERVICE_ACCOUNT_PRIVATE_KEY', privateKey);
+    console.log("✅ Service Account Private Key has been securely stored");
+    console.log("   Run testBigQueryConnection() to verify the configuration");
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to store private key: " + error.message);
+    return false;
+  }
+}
+
+/**
+ * Set Service Account Email
+ * @param {string} email - The service account email from your service account JSON
+ */
+function setServiceAccountEmail(email) {
+  if (!email || !email.includes('@') || !email.includes('.iam.gserviceaccount.com')) {
+    console.error("❌ Invalid service account email. Expected format: name@project.iam.gserviceaccount.com");
+    return false;
+  }
+  
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    properties.setProperty('SERVICE_ACCOUNT_EMAIL', email);
+    console.log("✅ Service Account Email has been stored: " + email);
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to store service account email: " + error.message);
+    return false;
+  }
 }
 
 // ===== PERFORMANCE CONFIGURATION =====
@@ -2777,6 +2921,19 @@ function buildAddOn(e) {
             savedCount++;
             savedFiles.push(finalFileName);
             
+            // Log to BigQuery if saving to 02_Meet_Recordings folder
+            if (selectedSubfolder === '02_Meet_Recordings') {
+              logMeetingTranscriptToBigQuery({
+                jiraTicket: finalTicket,
+                meetingName: finalFileName,
+                folderId: ticketFolder.getId(),
+                fileId: file.getId(),
+                fileLink: file.getUrl(),
+                fileType: attachmentData.docType || 'docs',
+                emailSubject: attachmentData.emailSubject || ''
+              });
+            }
+            
           } else {
             // Handle regular attachments - check for duplicates
             var existingFiles = ticketFolder.getFilesByName(fileName);
@@ -3121,7 +3278,7 @@ function buildAddOn(e) {
           console.error("❌ Folder is in Trash: " + folderId);
           return {
             success: false,
-            error: 'Folder "' + fileMetadata.name + '" has been deleted (in Trash). Please select a different folder or restore it from Trash.',
+            error: 'Folder "' + fileMetadata.name + '" has been deleted (in Trash).',
             isTrashed: true
           };
         }
@@ -4298,6 +4455,530 @@ function getOrCreateProjectSubfolder(parentFolder, subfolderPath) {
       return null;
     }
   }
+
+// ===== BIGQUERY LOGGING FOR MEETING TRANSCRIPTS =====
+
+/**
+ * Log meeting transcript save event to BigQuery
+ * This function logs metadata about saved meeting transcripts to BigQuery for analytics and tracking.
+ * Failures are silent and do not affect the file save operation.
+ * 
+ * @param {Object} data - The data to log
+ * @param {string} data.jiraTicket - Jira project ticket (e.g., "CXPRODELIVERY-1234")
+ * @param {string} data.meetingName - Name of the meeting/file saved
+ * @param {string} data.folderId - Google Drive folder ID where file is saved
+ * @param {string} data.fileId - Google Drive file ID of the saved file
+ * @param {string} data.fileLink - Direct link to the file
+ * @param {string} data.fileType - Type of Google file (docs, sheets, slides, etc.)
+ * @param {string} data.emailSubject - Subject of the source email
+ * @returns {Object} Result object with success status
+ */
+/**
+ * Create OAuth2 service for BigQuery using Service Account
+ * Uses the OAuth2 library to authenticate with a service account
+ * 
+ * @returns {OAuth2.Service} OAuth2 service configured for BigQuery
+ */
+function getBigQueryService() {
+  var serviceAccountEmail = getServiceAccountEmail();
+  var privateKey = getServiceAccountPrivateKey();
+  
+  if (!serviceAccountEmail || !privateKey) {
+    throw new Error('Service Account not configured. Run setServiceAccountEmail() and setServiceAccountKey()');
+  }
+  
+  return OAuth2.createService('BigQuery')
+    .setTokenUrl('https://oauth2.googleapis.com/token')
+    .setPrivateKey(privateKey)
+    .setIssuer(serviceAccountEmail)
+    .setPropertyStore(PropertiesService.getScriptProperties())
+    .setScope('https://www.googleapis.com/auth/bigquery');  // Full BigQuery access
+}
+
+/**
+ * Log meeting transcript save event to BigQuery using Service Account
+ * This function logs metadata about saved meeting transcripts to BigQuery for analytics and tracking.
+ * Uses Service Account authentication - failures are silent and do not affect the file save operation.
+ * 
+ * @param {Object} data - The data to log
+ * @param {string} data.jiraTicket - Jira project ticket (e.g., "CXPRODELIVERY-1234")
+ * @param {string} data.meetingName - Name of the meeting/file saved
+ * @param {string} data.folderId - Google Drive folder ID where file is saved
+ * @param {string} data.fileId - Google Drive file ID of the saved file
+ * @param {string} data.fileLink - Direct link to the file
+ * @param {string} data.fileType - Type of Google file (docs, sheets, slides, etc.)
+ * @param {string} data.emailSubject - Subject of the source email
+ * @returns {Object} Result object with success status
+ */
+function logMeetingTranscriptToBigQuery(data) {
+  try {
+    // Check if BigQuery logging is enabled
+    if (!isBigQueryLoggingEnabled()) {
+      verboseLog("📊 BigQuery logging skipped - not enabled or not configured");
+      return { success: false, reason: 'not_enabled' };
+    }
+    
+    var projectId = getBigQueryProjectId();
+    var datasetId = getBigQueryDatasetId();
+    var tableId = getBigQueryTableId();
+    
+    // Get OAuth2 service for BigQuery
+    var service = getBigQueryService();
+    
+    if (!service.hasAccess()) {
+      console.error("⚠️ BigQuery Service Account authentication failed");
+      return { success: false, error: 'authentication_failed' };
+    }
+    
+    // Use service account email as the user_email for audit trail
+    var serviceAccountEmail = getServiceAccountEmail();
+    
+    // Generate unique event ID
+    var eventId = Utilities.getUuid();
+    
+    // Prepare the row data
+    var rowData = {
+      event_id: eventId,
+      timestamp: new Date().toISOString(),
+      user_email: serviceAccountEmail,
+      jira_ticket: data.jiraTicket || '',
+      meeting_name: data.meetingName || '',
+      gdrive_folder_id: data.folderId || '',
+      gdrive_file_id: data.fileId || '',
+      direct_link: data.fileLink || '',
+      file_type: data.fileType || '',
+      source_email_subject: data.emailSubject || ''
+    };
+    
+    // Prepare the insert request payload
+    var insertPayload = {
+      rows: [
+        {
+          insertId: eventId,  // Ensures idempotency
+          json: rowData
+        }
+      ]
+    };
+    
+    // Build BigQuery API URL for streaming insert
+    var url = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + projectId + 
+              '/datasets/' + datasetId + 
+              '/tables/' + tableId + 
+              '/insertAll';
+    
+    // Make the API request using Service Account token
+    var response = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      contentType: 'application/json',
+      headers: {
+        'Authorization': 'Bearer ' + service.getAccessToken()
+      },
+      payload: JSON.stringify(insertPayload),
+      muteHttpExceptions: true
+    });
+    
+    var responseCode = response.getResponseCode();
+    var responseBody = JSON.parse(response.getContentText());
+    
+    if (responseCode !== 200) {
+      console.error("⚠️ BigQuery API error: " + responseCode + " - " + response.getContentText());
+      return { success: false, error: 'api_error_' + responseCode };
+    }
+    
+    // Check for insert errors in response
+    if (responseBody.insertErrors && responseBody.insertErrors.length > 0) {
+      var errorDetails = responseBody.insertErrors.map(function(err) {
+        return err.errors.map(function(e) { return e.message; }).join(', ');
+      }).join('; ');
+      console.error("⚠️ BigQuery insert errors: " + errorDetails);
+      return { success: false, error: errorDetails };
+    }
+    
+    verboseLog("📊 BigQuery: Logged meeting transcript save - " + data.meetingName);
+    return { success: true, eventId: eventId };
+    
+  } catch (error) {
+    // Silent fail - log error but don't disrupt the save operation
+    console.error("⚠️ BigQuery logging failed (non-blocking): " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Test BigQuery connection and Service Account configuration
+ * Run this function manually to verify BigQuery is properly configured
+ * 
+ * @returns {Object} Test result with status and details
+ */
+function testBigQueryConnection() {
+  console.log("=== TESTING BIGQUERY CONNECTION (Service Account) ===");
+  
+  try {
+    var projectId = getBigQueryProjectId();
+    var datasetId = getBigQueryDatasetId();
+    var tableId = getBigQueryTableId();
+    var serviceEmail = getServiceAccountEmail();
+    var privateKeySet = getServiceAccountPrivateKey() ? true : false;
+    var enabled = isBigQueryLoggingEnabled();
+    
+    console.log("\nConfiguration:");
+    console.log("  - Project ID: " + projectId);
+    console.log("  - Dataset ID: " + datasetId);
+    console.log("  - Table ID: " + tableId);
+    console.log("  - Service Account: " + serviceEmail);
+    console.log("  - Private Key Set: " + (privateKeySet ? 'Yes' : 'No'));
+    console.log("  - Logging Enabled: " + enabled);
+    
+    if (!enabled) {
+      console.log("\n⚠️ BigQuery logging is disabled or not properly configured");
+      console.log("\nChecklist:");
+      console.log("  □ BIGQUERY_PROJECT_ID is set to your actual GCP project ID");
+      console.log("  □ BIGQUERY_LOGGING_ENABLED is set to 'true'");
+      console.log("  □ SERVICE_ACCOUNT_EMAIL is set (run setServiceAccountEmail())");
+      console.log("  □ SERVICE_ACCOUNT_PRIVATE_KEY is set (run setServiceAccountKey())");
+      return { success: false, reason: 'not_enabled' };
+    }
+    
+    // Test OAuth2 authentication
+    console.log("\nTesting Service Account authentication...");
+    var service = getBigQueryService();
+    
+    if (!service.hasAccess()) {
+      console.error("❌ Service Account authentication failed");
+      console.log("\nTroubleshooting:");
+      console.log("  1. Verify the private key is correct (from your JSON key file)");
+      console.log("  2. Check the service account email matches your GCP project");
+      console.log("  3. Ensure the service account exists and is not disabled");
+      return { success: false, error: 'authentication_failed' };
+    }
+    
+    console.log("✅ Service Account authenticated successfully");
+    
+    // Test table access by attempting a query
+    console.log("\nTesting table access...");
+    var url = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + projectId + 
+              '/datasets/' + datasetId + 
+              '/tables/' + tableId;
+    
+    var response = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + service.getAccessToken()
+      },
+      muteHttpExceptions: true
+    });
+    
+    var responseCode = response.getResponseCode();
+    
+    if (responseCode === 200) {
+      var tableInfo = JSON.parse(response.getContentText());
+      console.log("✅ Successfully connected to BigQuery table");
+      console.log("   Table: " + tableInfo.tableReference.projectId + "." + 
+                  tableInfo.tableReference.datasetId + "." + 
+                  tableInfo.tableReference.tableId);
+      
+      return { 
+        success: true, 
+        table: tableInfo.tableReference.projectId + "." + 
+               tableInfo.tableReference.datasetId + "." + 
+               tableInfo.tableReference.tableId,
+        serviceAccount: serviceEmail
+      };
+    } else if (responseCode === 404) {
+      console.error("❌ Table not found: " + projectId + "." + datasetId + "." + tableId);
+      console.log("\nMake sure to create the table using the SQL in Documentation/bigquery-setup.md");
+      return { success: false, error: 'table_not_found' };
+    } else {
+      console.error("❌ BigQuery API error: " + responseCode);
+      console.log("Response: " + response.getContentText());
+      return { success: false, error: 'api_error_' + responseCode };
+    }
+    
+  } catch (error) {
+    console.error("❌ BigQuery connection test failed: " + error.message);
+    console.log("\nTroubleshooting steps:");
+    console.log("1. Run setServiceAccountEmail('gmail-addon-bigquery@transporeon-gmail-addon-prod.iam.gserviceaccount.com')");
+    console.log("2. Run setServiceAccountKey('-----BEGIN PRIVATE KEY-----...')");
+    console.log("3. Verify the service account has BigQuery Data Editor role");
+    console.log("4. Ensure the BigQuery API is enabled in your GCP project");
+    
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Test BigQuery insert by inserting a test row
+ * Run this after testBigQueryConnection() to verify full write capability
+ */
+function testBigQueryInsert() {
+  console.log("=== TESTING BIGQUERY INSERT ===\n");
+  
+  try {
+    var result = logMeetingTranscriptToBigQuery({
+      jiraTicket: 'TEST-000',
+      meetingName: 'Test Meeting Transcript - DELETE ME',
+      folderId: 'test_folder_id',
+      fileId: 'test_file_id',
+      fileLink: 'https://drive.google.com/test',
+      fileType: 'docs',
+      emailSubject: 'Test Email Subject'
+    });
+    
+    if (result.success) {
+      console.log("✅ Successfully inserted test row to BigQuery!");
+      console.log("   Event ID: " + result.eventId);
+      console.log("\n📊 Check your BigQuery table to see the test row:");
+      console.log("   Project: " + getBigQueryProjectId());
+      console.log("   Dataset: " + getBigQueryDatasetId());
+      console.log("   Table: " + getBigQueryTableId());
+      console.log("\n⚠️  Remember to delete the test row (jira_ticket = 'TEST-000') from BigQuery");
+    } else {
+      console.log("❌ Insert failed: " + (result.error || result.reason));
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error("❌ Test insert failed: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Reset OAuth2 token cache (useful for troubleshooting)
+ * Call this if you need to force re-authentication
+ */
+function resetBigQueryAuth() {
+  try {
+    var service = getBigQueryService();
+    service.reset();
+    console.log("✅ BigQuery OAuth2 token cache cleared");
+    console.log("   Next BigQuery operation will re-authenticate");
+  } catch (error) {
+    console.error("❌ Failed to reset auth: " + error.message);
+  }
+}
+
+/**
+ * Debug function to diagnose private key format issues
+ * Run this to check if your private key is properly formatted
+ */
+function debugServiceAccountKey() {
+  console.log("=== DEBUGGING SERVICE ACCOUNT PRIVATE KEY ===\n");
+  
+  var privateKey = getServiceAccountPrivateKey();
+  
+  if (!privateKey) {
+    console.log("❌ No private key found. Run setServiceAccountKey() first.");
+    return;
+  }
+  
+  console.log("Key length: " + privateKey.length + " characters");
+  console.log("Starts with '-----BEGIN': " + (privateKey.indexOf('-----BEGIN') === 0 ? '✅ Yes' : '❌ No'));
+  console.log("Ends with 'KEY-----': " + (privateKey.indexOf('KEY-----') > 0 ? '✅ Yes' : '❌ No'));
+  
+  // Check for escaped newlines vs actual newlines
+  var hasEscapedNewlines = privateKey.indexOf('\\n') > -1;
+  var hasActualNewlines = privateKey.indexOf('\n') > -1;
+  var lineCount = privateKey.split('\n').length;
+  
+  console.log("\nNewline Analysis:");
+  console.log("  Contains escaped '\\n' strings: " + (hasEscapedNewlines ? '⚠️ YES (PROBLEM!)' : '✅ No'));
+  console.log("  Contains actual newlines: " + (hasActualNewlines ? '✅ Yes' : '❌ No'));
+  console.log("  Number of lines: " + lineCount);
+  
+  if (hasEscapedNewlines) {
+    console.log("\n❌ PROBLEM DETECTED: Your private key contains escaped '\\n' strings");
+    console.log("   The key needs ACTUAL newlines, not the text '\\n'");
+    console.log("\n   FIX: Run fixPrivateKeyNewlines() to automatically convert them");
+  } else if (lineCount < 20) {
+    console.log("\n⚠️ WARNING: Key appears to be on a single line or have few lines");
+    console.log("   A properly formatted key should have ~28 lines");
+  } else {
+    console.log("\n✅ Private key format appears correct");
+    console.log("   If authentication still fails, the key may be invalid or the service account disabled");
+  }
+  
+  // Show first and last few characters
+  console.log("\nKey preview:");
+  console.log("  First 50 chars: " + privateKey.substring(0, 50) + "...");
+  console.log("  Last 50 chars: ..." + privateKey.substring(privateKey.length - 50));
+}
+
+/**
+ * Fix private key by converting escaped \\n to actual newlines
+ * Run this if debugServiceAccountKey() shows escaped newlines
+ */
+function fixPrivateKeyNewlines() {
+  console.log("=== FIXING PRIVATE KEY NEWLINES ===\n");
+  
+  var privateKey = getServiceAccountPrivateKey();
+  
+  if (!privateKey) {
+    console.log("❌ No private key found. Run setServiceAccountKey() first.");
+    return false;
+  }
+  
+  // Check if fix is needed
+  if (privateKey.indexOf('\\n') === -1) {
+    console.log("✅ No escaped newlines found. Key format appears correct.");
+    return true;
+  }
+  
+  // Convert escaped \n to actual newlines
+  var fixedKey = privateKey.replace(/\\n/g, '\n');
+  
+  console.log("Converting escaped '\\n' to actual newlines...");
+  console.log("  Before: " + privateKey.split('\\n').length + " escaped newline markers");
+  console.log("  After: " + fixedKey.split('\n').length + " actual lines");
+  
+  // Save the fixed key
+  var properties = PropertiesService.getScriptProperties();
+  properties.setProperty('SERVICE_ACCOUNT_PRIVATE_KEY', fixedKey);
+  
+  // Also reset the OAuth2 token cache
+  try {
+    var service = getBigQueryService();
+    service.reset();
+    console.log("✅ OAuth2 token cache cleared");
+  } catch (e) {
+    // Ignore errors during reset
+  }
+  
+  console.log("\n✅ Private key fixed and saved!");
+  console.log("   Now run testBigQueryConnection() to verify");
+  
+  return true;
+}
+
+/**
+ * Reconstruct private key from single-line or malformed format
+ * Use this when the key has been flattened to a single line (newlines became spaces)
+ */
+function reconstructPrivateKey() {
+  console.log("=== RECONSTRUCTING PRIVATE KEY FORMAT ===\n");
+  
+  var privateKey = getServiceAccountPrivateKey();
+  
+  if (!privateKey) {
+    console.log("❌ No private key found. Run setServiceAccountKey() first.");
+    return false;
+  }
+  
+  // Check if reconstruction is needed
+  var lineCount = privateKey.split('\n').length;
+  if (lineCount > 20) {
+    console.log("✅ Key already has " + lineCount + " lines. Format appears correct.");
+    console.log("   If authentication still fails, try resetBigQueryAuth() and test again.");
+    return true;
+  }
+  
+  console.log("Current format: " + lineCount + " line(s)");
+  console.log("Reconstructing proper PEM format...\n");
+  
+  // Extract the base64 content by removing header, footer, and all whitespace
+  var content = privateKey
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/[\s\n\r]/g, '');  // Remove all whitespace
+  
+  console.log("Base64 content length: " + content.length + " characters");
+  
+  // Split into 64-character lines (standard PEM format)
+  var lines = [];
+  for (var i = 0; i < content.length; i += 64) {
+    lines.push(content.substring(i, i + 64));
+  }
+  
+  // Reconstruct the key with proper format
+  var fixedKey = '-----BEGIN PRIVATE KEY-----\n' + 
+                 lines.join('\n') + 
+                 '\n-----END PRIVATE KEY-----\n';
+  
+  console.log("Reconstructed key: " + fixedKey.split('\n').length + " lines");
+  
+  // Save the fixed key
+  var properties = PropertiesService.getScriptProperties();
+  properties.setProperty('SERVICE_ACCOUNT_PRIVATE_KEY', fixedKey);
+  
+  // Reset the OAuth2 token cache
+  try {
+    var service = getBigQueryService();
+    service.reset();
+    console.log("✅ OAuth2 token cache cleared");
+  } catch (e) {
+    // Ignore errors during reset
+  }
+  
+  console.log("\n✅ Private key reconstructed and saved!");
+  console.log("   Now run testBigQueryConnection() to verify");
+  
+  return true;
+}
+
+/**
+ * Check and display BigQuery configuration status
+ * Useful for verifying all required properties are set before testing
+ */
+function checkBigQueryConfig() {
+  console.log("=== BIGQUERY CONFIGURATION STATUS ===\n");
+  
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var allSet = true;
+  
+  // Check each required property
+  var requiredProps = [
+    { key: 'BIGQUERY_PROJECT_ID', mask: false, placeholder: 'your-gcp-project-id' },
+    { key: 'BIGQUERY_DATASET_ID', mask: false, placeholder: null },
+    { key: 'BIGQUERY_TABLE_ID', mask: false, placeholder: null },
+    { key: 'BIGQUERY_LOGGING_ENABLED', mask: false, placeholder: null },
+    { key: 'SERVICE_ACCOUNT_EMAIL', mask: false, placeholder: 'your-service-account' },
+    { key: 'SERVICE_ACCOUNT_PRIVATE_KEY', mask: true, placeholder: null }
+  ];
+  
+  requiredProps.forEach(function(prop) {
+    var value = props[prop.key];
+    var status = '❌ NOT SET';
+    var displayValue = '';
+    
+    if (value) {
+      // Check if it's still a placeholder
+      if (prop.placeholder && value.includes(prop.placeholder)) {
+        status = '⚠️  PLACEHOLDER';
+        displayValue = value;
+        allSet = false;
+      } else {
+        status = '✅ SET';
+        if (prop.mask) {
+          displayValue = '[' + value.length + ' characters]';
+        } else {
+          displayValue = value;
+        }
+      }
+    } else {
+      allSet = false;
+    }
+    
+    console.log(prop.key + ':');
+    console.log('  Status: ' + status);
+    if (displayValue) {
+      console.log('  Value: ' + displayValue);
+    }
+    console.log('');
+  });
+  
+  // Summary
+  console.log("=== SUMMARY ===");
+  if (allSet) {
+    console.log("✅ All required properties are configured");
+    console.log("   Run testBigQueryConnection() to verify connectivity");
+  } else {
+    console.log("⚠️  Some properties are missing or still have placeholder values");
+    console.log("   See Documentation/configure-script-properties-guide.md for setup instructions");
+  }
+  
+  return { complete: allSet, properties: props };
+}
 
 /**
  * Save attachment using Advanced Drive API v3 with Shared Drive support
