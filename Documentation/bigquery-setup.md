@@ -117,7 +117,7 @@ OPTIONS (
 |--------|------|-------------|
 | `event_id` | STRING | Unique identifier for each save event (UUID) |
 | `timestamp` | TIMESTAMP | When the save occurred (ISO 8601 format) |
-| `user_email` | STRING | Service account email (identifies the addon) |
+| `user_email` | STRING | Email of the user who saved the file |
 | `jira_ticket` | STRING | Jira project ticket (e.g., CXPRODELIVERY-1234) |
 | `meeting_name` | STRING | Name of the saved meeting transcript file |
 | `gdrive_folder_id` | STRING | Google Drive folder ID where file was saved |

@@ -1127,13 +1127,77 @@ function completeJiraToFolderWorkflowWithCreate(ticketKey, createIfMissing, cach
   return result;
 }
 
-// ===== MAIN GMAIL ADD-ON FUNCTIONS =====
+// ===== TAB NAVIGATION SYSTEM =====
 
-function buildAddOn(e) {
-    console.log("=== BUILD ADD-ON CALLED ===");
+/**
+ * Creates a reusable tab header component for the add-on UI
+ * Uses ImageButtons with custom icons from Google's gmail-addon-assets:
+ * - Attachment.png for Attachments tab
+ * - Email-Action-Add.png for Mails tab  
+ * - Cog.png for Settings tab
+ * @param {string} activeTab - The currently active tab ('attachment', 'mails', or 'settings')
+ * @param {Object} e - Event object to pass parameters
+ * @returns {CardService.CardSection} Tab header section
+ */
+function createTabHeader(activeTab, e) {
+  var tabSection = CardService.newCardSection();
+  var tabButtons = CardService.newButtonSet();
+  
+  // Prepare parameters for tab switching
+  var threadId = "";
+  if (e && e.gmail && e.gmail.threadId) {
+    threadId = e.gmail.threadId;
+  } else if (e && e.parameters && e.parameters.threadId) {
+    threadId = e.parameters.threadId;
+  }
+  
+  // Attachment tab (default) - using custom Attachment icon
+  var attachmentAction = CardService.newAction()
+    .setFunctionName('showAttachmentTab')
+    .setParameters({threadId: threadId});
+  tabButtons.addButton(CardService.newImageButton()
+    .setIconUrl("https://storage.googleapis.com/gmail-addon-assets/Attachment.png")
+    .setAltText("Attachments")
+    .setOnClickAction(attachmentAction));
+  
+  // Mails tab - using custom Email icon
+  var mailsAction = CardService.newAction()
+    .setFunctionName('showMailsTab')
+    .setParameters({threadId: threadId});
+  tabButtons.addButton(CardService.newImageButton()
+    .setIconUrl("https://storage.googleapis.com/gmail-addon-assets/Email-Action-Add.png")
+    .setAltText("Mails")
+    .setOnClickAction(mailsAction));
+  
+  // Settings tab - using custom Cog/Settings icon
+  var settingsAction = CardService.newAction()
+    .setFunctionName('showSettingsTab')
+    .setParameters({threadId: threadId});
+  tabButtons.addButton(CardService.newImageButton()
+    .setIconUrl("https://storage.googleapis.com/gmail-addon-assets/Cog.png")
+    .setAltText("Settings")
+    .setOnClickAction(settingsAction));
+    
+  tabSection.addWidget(tabButtons);
+  return tabSection;
+}
+
+// ===== TAB BUILDER FUNCTIONS =====
+
+/**
+ * Builds the Attachment tab content (main functionality)
+ * @param {Object} e - Event object from Gmail
+ * @returns {CardService.Card} The built attachment tab card
+ */
+function buildAttachmentTab(e) {
+    console.log("=== BUILD ATTACHMENT TAB ===");
     
     try {
       var card = CardService.newCardBuilder();
+      
+      // Add tab header first
+      card.addSection(createTabHeader('attachment', e));
+      
       var section = CardService.newCardSection()
         .setHeader("Jira Project");
       
@@ -1147,12 +1211,8 @@ function buildAddOn(e) {
       console.log("- Customers Folder ID:", getCustomersFolderId());
       
       if (!settings.jiraToken || !settings.jiraUrl) {
-        console.log("SETTINGS INCOMPLETE - showing setup screen");
-        console.log("Missing:");
-        if (!settings.jiraToken) console.log("- Jira Token");
-        if (!settings.jiraUrl) console.log("- Jira URL");
-        
-        return [buildSettingsCard(true)]; // true = first time setup
+        console.log("SETTINGS INCOMPLETE - redirecting to settings tab");
+        return buildSettingsTab(e, true); // true = first time setup
       }
       
       console.log("Settings validation PASSED - proceeding with main interface");
@@ -1169,18 +1229,6 @@ function buildAddOn(e) {
         
         if (Object.keys(projects).length > 0 && issues.length > 0) {
           console.log("Creating TPM project UI with", issues.length, "tickets...");
-          
-          // Compact header with just settings button
-          var headerSection = CardService.newCardSection();
-          
-          // Compact settings button (gear only)
-          var settingsButtonSet = CardService.newButtonSet()
-            .addButton(CardService.newTextButton()
-              .setText("⚙️")
-              .setOnClickAction(CardService.newAction().setFunctionName("showSettings")));
-          headerSection.addWidget(settingsButtonSet);
-          
-          card.addSection(headerSection);
           
           // Create dropdown with active TPM tickets WITH onChange action
           console.log("Creating dropdown selection widget with dynamic info...");
@@ -1242,15 +1290,8 @@ function buildAddOn(e) {
         } else {
           console.log("No TPM projects/issues found, using fallback UI");
           var debugInfo = CardService.newTextParagraph()
-            .setText("⚠️ Could not load TPM tickets. Check your JQL or connection settings.");
+            .setText("⚠️ Could not load TPM tickets. Check your JQL or use Settings tab.");
           section.addWidget(debugInfo);
-          
-                // Settings button for troubleshooting
-        var settingsButtonSet = CardService.newButtonSet()
-          .addButton(CardService.newTextButton()
-            .setText("⚙️ Check Settings")
-            .setOnClickAction(CardService.newAction().setFunctionName("showSettings")));
-        section.addWidget(settingsButtonSet);
           
           var ticketInput = CardService.newTextInput()
             .setFieldName("jiraTicket")
@@ -1262,15 +1303,8 @@ function buildAddOn(e) {
       } catch (jiraError) {
         console.error('Failed to load TPM projects:', jiraError);
         var errorInfo = CardService.newTextParagraph()
-          .setText("⚠️ Jira API error: " + jiraError.message + ". Check your settings.");
+          .setText("⚠️ Jira API error: " + jiraError.message + ". Use Settings tab to fix.");
         section.addWidget(errorInfo);
-        
-        // Settings button for troubleshooting
-        var settingsButtonSet = CardService.newButtonSet()
-          .addButton(CardService.newTextButton()
-            .setText("⚙️ Fix Settings")
-            .setOnClickAction(CardService.newAction().setFunctionName("showSettings")));
-        section.addWidget(settingsButtonSet);
         
         var ticketInput = CardService.newTextInput()
           .setFieldName("jiraTicket")
@@ -1550,26 +1584,22 @@ function buildAddOn(e) {
       saveSection.addWidget(saveButtonSet);
       card.addSection(saveSection);
       
-      console.log("Card built successfully");
-      return [card.build()];
+      console.log("Attachment tab built successfully");
+      return card.build();
       
     } catch (error) {
-      console.error("Critical error in buildAddOn:", error);
+      console.error("Critical error in buildAttachmentTab:", error);
       
-      // Fallback card with settings option
+      // Fallback card with tab header
       var fallbackCard = CardService.newCardBuilder();
+      fallbackCard.addSection(createTabHeader('attachment', e));
+      
       var fallbackSection = CardService.newCardSection()
-        .setHeader("Error - Check Settings");
+        .setHeader("Error - Use Settings Tab");
       
       var errorText = CardService.newTextParagraph()
-        .setText("Error: " + error.message);
+        .setText("Error: " + error.message + "\n\nPlease check your settings in the Settings tab.");
       fallbackSection.addWidget(errorText);
-      
-      var settingsButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("⚙️ Configure Settings")
-          .setOnClickAction(CardService.newAction().setFunctionName("showSettings")));
-      fallbackSection.addWidget(settingsButtonSet);
       
       var ticketInput = CardService.newTextInput()
         .setFieldName("jiraTicket")
@@ -1584,10 +1614,442 @@ function buildAddOn(e) {
       fallbackSection.addWidget(saveButtonSet);
       
       fallbackCard.addSection(fallbackSection);
-      return [fallbackCard.build()];
+      return fallbackCard.build();
     }
   }
+
+/**
+ * Builds the Mails tab content - Save emails as Google Docs to project folder
+ * @param {Object} e - Event object from Gmail
+ * @returns {CardService.Card} The built mails tab card
+ */
+function buildMailsTab(e) {
+  console.log("=== BUILD MAILS TAB ===");
   
+  try {
+    var card = CardService.newCardBuilder();
+    
+    // Add tab header first
+    card.addSection(createTabHeader('mails', e));
+    
+    var section = CardService.newCardSection()
+      .setHeader("📧 Save Email to Project");
+    
+    // Check if settings are configured
+    console.log("Checking user settings configuration...");
+    var settings = getUserSettings();
+    
+    if (!settings.jiraToken || !settings.jiraUrl) {
+      console.log("SETTINGS INCOMPLETE - redirecting to settings tab");
+      return buildSettingsTab(e, true);
+    }
+    
+    console.log("Settings validation PASSED - proceeding with mails interface");
+    
+    // Get user's TPM projects and active tickets (same as Attachment tab)
+    try {
+      console.log("Loading TPM projects for Mails tab...");
+      var projectResult = getMyJiraProjects();
+      var projects = projectResult.projects || {};
+      var issues = projectResult.issues || [];
+      
+      console.log("DEBUG: Projects loaded:", Object.keys(projects).length);
+      console.log("DEBUG: Issues loaded:", issues.length);
+      
+      if (Object.keys(projects).length > 0 && issues.length > 0) {
+        console.log("Creating TPM project UI with", issues.length, "tickets...");
+        
+        // Create dropdown with active TPM tickets
+        var ticketSelection = CardService.newSelectionInput()
+          .setType(CardService.SelectionInputType.DROPDOWN)
+          .setFieldName("selectedTicket")
+          .setTitle("Select Jira Ticket");
+        
+        // Add "Manual Entry" option first
+        ticketSelection.addItem("Manual Entry - Enter ticket number below", "manual", true);
+        
+        // Sort and add all active TPM tickets to dropdown
+        issues.sort(function(a, b) {
+          return a.key.localeCompare(b.key);
+        });
+        
+        for (var i = 0; i < issues.length; i++) {
+          try {
+            var issue = issues[i];
+            var displayText = formatCompactTicketDisplay(issue);
+            ticketSelection.addItem(displayText, issue.key, false);
+          } catch (itemError) {
+            console.error("Error adding dropdown item:", itemError);
+            continue;
+          }
+        }
+        
+        section.addWidget(ticketSelection);
+        
+        // Add manual ticket number input
+        var ticketInput = CardService.newTextInput()
+          .setFieldName("manualTicketNumber")
+          .setTitle("Manual Ticket Entry")
+          .setHint("e.g., 6500 (will become CXPRODELIVERY-6500)");
+        section.addWidget(ticketInput);
+        
+      } else {
+        console.log("No TPM projects/issues found, using fallback UI");
+        var debugInfo = CardService.newTextParagraph()
+          .setText("⚠️ Could not load TPM tickets. Check your JQL or use Settings tab.");
+        section.addWidget(debugInfo);
+        
+        var ticketInput = CardService.newTextInput()
+          .setFieldName("jiraTicket")
+          .setTitle("Full Jira Ticket")
+          .setHint("e.g., CXPRODELIVERY-6310");
+        section.addWidget(ticketInput);
+      }
+      
+    } catch (jiraError) {
+      console.error('Failed to load TPM projects:', jiraError);
+      var errorInfo = CardService.newTextParagraph()
+        .setText("⚠️ Jira API error: " + jiraError.message + ". Use Settings tab to fix.");
+      section.addWidget(errorInfo);
+      
+      var ticketInput = CardService.newTextInput()
+        .setFieldName("jiraTicket")
+        .setTitle("Full Jira Ticket")
+        .setHint("e.g., CXPRODELIVERY-6310");
+      section.addWidget(ticketInput);
+    }
+    
+    card.addSection(section);
+    
+    // Email preview section
+    var emailSection = CardService.newCardSection()
+      .setHeader("📬 Current Email");
+    
+    // Handle Gmail context
+    if (!e || !e.gmail || !e.gmail.threadId) {
+      console.log("No Gmail context - showing prompt");
+      var noEmailText = CardService.newTextParagraph()
+        .setText("📭 <i>Open an email to save it as a Google Doc</i>");
+      emailSection.addWidget(noEmailText);
+      
+      card.addSection(emailSection);
+      return card.build();
+    }
+    
+    // Get and display email info
+    try {
+      var threadId = e.gmail.threadId;
+      var messageId = e.gmail && e.gmail.messageId ? e.gmail.messageId : null;
+      var thread = GmailApp.getThreadById(threadId);
+      var messages = thread.getMessages();
+      var message = null;
+      
+      // Find specific message or use last message
+      if (messageId) {
+        for (var i = 0; i < messages.length; i++) {
+          if (messages[i].getId() === messageId) {
+            message = messages[i];
+            break;
+          }
+        }
+      }
+      if (!message) {
+        message = messages[messages.length - 1];
+      }
+      
+      // Display email preview
+      var subject = message.getSubject() || "(No Subject)";
+      var from = message.getFrom() || "";
+      var date = message.getDate();
+      var dateStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
+      
+      var previewText = CardService.newTextParagraph()
+        .setText("<b>Subject:</b> " + subject + "\n<b>From:</b> " + from + "\n<b>Date:</b> " + dateStr);
+      emailSection.addWidget(previewText);
+      
+      // Info about save location
+      var saveInfoText = CardService.newTextParagraph()
+        .setText("📁 <font color=\"#888888\">Will be saved to: Project/03_Correspondence/</font>");
+      emailSection.addWidget(saveInfoText);
+      
+      // Add Save button
+      var saveButton = CardService.newTextButton()
+        .setText("💾 Save Email as Google Doc")
+        .setOnClickAction(CardService.newAction()
+          .setFunctionName("saveEmailAsGoogleDoc")
+          .setParameters({
+            threadId: threadId,
+            messageId: messageId || ""
+          }));
+      
+      var buttonSet = CardService.newButtonSet()
+        .addButton(saveButton);
+      emailSection.addWidget(buttonSet);
+      
+    } catch (emailError) {
+      console.error("Error loading email preview:", emailError);
+      var errorText = CardService.newTextParagraph()
+        .setText("⚠️ Error loading email: " + emailError.message);
+      emailSection.addWidget(errorText);
+    }
+    
+    card.addSection(emailSection);
+    
+    console.log("Mails tab built successfully");
+    return card.build();
+    
+  } catch (error) {
+    console.error("Error building mails tab:", error);
+    
+    // Fallback error card
+    var fallbackCard = CardService.newCardBuilder();
+    fallbackCard.addSection(createTabHeader('mails', e));
+    
+    var errorSection = CardService.newCardSection()
+      .setHeader("Error");
+    var errorText = CardService.newTextParagraph()
+      .setText("❌ Error loading Mails tab: " + error.message);
+    errorSection.addWidget(errorText);
+    fallbackCard.addSection(errorSection);
+    
+    return fallbackCard.build();
+  }
+}
+
+/**
+ * Builds the Settings tab content
+ * @param {Object} e - Event object from Gmail
+ * @param {boolean} isFirstTime - Whether this is first time setup
+ * @returns {CardService.Card} The built settings tab card
+ */
+function buildSettingsTab(e, isFirstTime) {
+  console.log("=== BUILD SETTINGS TAB ===");
+  isFirstTime = isFirstTime || false;
+  
+  try {
+    var card = CardService.newCardBuilder();
+    
+    // Add tab header (only if not first time setup, otherwise settings is the only visible content)
+    if (!isFirstTime) {
+      card.addSection(createTabHeader('settings', e));
+    } else {
+      // For first time setup, show a welcome section instead of tabs
+      var welcomeSection = CardService.newCardSection();
+      var welcomeText = CardService.newTextParagraph()
+        .setText("📎 <b>Jira Attachment Saver</b>\n\n<font color=\"#888888\">Complete the setup below to get started</font>");
+      welcomeSection.addWidget(welcomeText);
+      card.addSection(welcomeSection);
+    }
+    
+    // Get current settings
+    var settings = getUserSettings();
+    console.log("Retrieved settings:", settings ? "Success" : "Failed");
+    
+    // Header section
+    var headerSection = CardService.newCardSection()
+      .setHeader(isFirstTime ? "⚙️ Initial Setup Required" : "Jira Configuration");
+    
+    if (isFirstTime) {
+      var setupInfo = CardService.newTextParagraph()
+        .setText("Welcome! Please configure your Jira connection to get started.");
+      headerSection.addWidget(setupInfo);
+    }
+    
+    // Jira URL input
+    var jiraUrlInput = CardService.newTextInput()
+      .setFieldName("jiraUrl")
+      .setTitle("Jira URL")
+      .setHint("e.g., https://your-company.atlassian.net")
+      .setValue(settings.jiraUrl || getDefaultJiraURL());
+    headerSection.addWidget(jiraUrlInput);
+    
+    // Jira Token input
+    var jiraTokenInput = CardService.newTextInput()
+      .setFieldName("jiraToken")
+      .setTitle("Jira API Token")
+      .setHint("Your personal Jira API token")
+      .setValue(settings.jiraToken || "");
+    headerSection.addWidget(jiraTokenInput);
+    
+    // Instructions for getting token
+    var tokenHelp = CardService.newTextParagraph()
+      .setText("📖 How to get API token:\n1. Go to Jira → Profile → Security\n2. Create API token\n3. Copy and paste above");
+    headerSection.addWidget(tokenHelp);
+    
+    // JQL input
+    var jqlInput = CardService.newTextInput()
+      .setFieldName("customJql")
+      .setTitle("Custom JQL Query")
+      .setHint("Optional: Custom JQL to filter your tickets")
+      .setValue(settings.customJql || getDefaultJQL());
+    headerSection.addWidget(jqlInput);
+    
+    // JQL help
+    var jqlHelp = CardService.newTextParagraph()
+      .setText("💡 JQL Examples:\n• assignee = currentUser()\n• project = MYPROJECT AND status = 'In Progress'");
+    headerSection.addWidget(jqlHelp);
+    
+    card.addSection(headerSection);
+    
+    // Action buttons section
+    var buttonSection = CardService.newCardSection();
+    
+    // Save button
+    var saveButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("💾 Save Settings")
+        .setOnClickAction(CardService.newAction().setFunctionName("saveSettings")));
+    buttonSection.addWidget(saveButtonSet);
+    
+    // Test buttons
+    var testButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("🧪 Test Jira Connection")
+        .setOnClickAction(CardService.newAction().setFunctionName("testJiraConnection")));
+    buttonSection.addWidget(testButtonSet);
+    
+    // Folder Lookup Test Button
+    var folderTestButtonSet = CardService.newButtonSet()
+      .addButton(CardService.newTextButton()
+        .setText("📁 Test Folder Lookup")
+        .setOnClickAction(CardService.newAction().setFunctionName("testFolderLookup")));
+    buttonSection.addWidget(folderTestButtonSet);
+    
+    card.addSection(buttonSection);
+    
+    // Current settings display (if configured)
+    if (settings.jiraUrl && settings.jiraToken && !isFirstTime) {
+      var currentSection = CardService.newCardSection()
+        .setHeader("Current Configuration")
+        .setCollapsible(true)
+        .setNumUncollapsibleWidgets(0);
+      
+      var currentInfo = CardService.newTextParagraph()
+        .setText("🔗 URL: " + settings.jiraUrl + "\n🔑 Token: " + maskToken(settings.jiraToken) + "\n📋 JQL: " + (settings.customJql ? "Custom" : "Default"));
+      currentSection.addWidget(currentInfo);
+      
+      card.addSection(currentSection);
+    }
+    
+    console.log("Settings tab built successfully");
+    return card.build();
+    
+  } catch (error) {
+    console.error("Error in buildSettingsTab:", error);
+    
+    // Return a basic fallback card with tab header
+    var fallbackCard = CardService.newCardBuilder();
+    if (!isFirstTime) {
+      fallbackCard.addSection(createTabHeader('settings', e));
+    }
+    
+    var fallbackSection = CardService.newCardSection()
+      .setHeader("Settings Error");
+    
+    var errorText = CardService.newTextParagraph()
+      .setText("Error loading settings: " + error.message);
+    fallbackSection.addWidget(errorText);
+    
+    fallbackCard.addSection(fallbackSection);
+    return fallbackCard.build();
+  }
+}
+
+// ===== MAIN GMAIL ADD-ON FUNCTIONS =====
+
+/**
+ * Main entry point for Gmail add-on - builds the initial card
+ * @param {Object} e - Event object from Gmail
+ * @returns {CardService.Card[]} Array containing the built card
+ */
+function buildAddOn(e) {
+  console.log("=== BUILD ADD-ON CALLED ===");
+  
+  // Check if settings need to be configured first
+  var settings = getUserSettings();
+  if (!settings.jiraToken || !settings.jiraUrl) {
+    console.log("Settings incomplete - showing settings tab for first time setup");
+    return [buildSettingsTab(e, true)];
+  }
+  
+  // Default to Attachment tab
+  return [buildAttachmentTab(e)];
+}
+
+// ===== TAB NAVIGATION FUNCTIONS =====
+
+/**
+ * Navigation handler to switch to Attachment tab
+ * @param {Object} e - Event object
+ * @returns {CardService.ActionResponse} Navigation response
+ */
+function showAttachmentTab(e) {
+  console.log("=== SHOW ATTACHMENT TAB ===");
+  
+  try {
+    var card = buildAttachmentTab(e);
+    
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().updateCard(card))
+      .build();
+      
+  } catch (error) {
+    console.error("Error in showAttachmentTab:", error);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("Error: " + error.message))
+      .build();
+  }
+}
+
+/**
+ * Navigation handler to switch to Mails tab
+ * @param {Object} e - Event object
+ * @returns {CardService.ActionResponse} Navigation response
+ */
+function showMailsTab(e) {
+  console.log("=== SHOW MAILS TAB ===");
+  
+  try {
+    var card = buildMailsTab(e);
+    
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().updateCard(card))
+      .build();
+      
+  } catch (error) {
+    console.error("Error in showMailsTab:", error);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("Error: " + error.message))
+      .build();
+  }
+}
+
+/**
+ * Navigation handler to switch to Settings tab
+ * @param {Object} e - Event object
+ * @returns {CardService.ActionResponse} Navigation response
+ */
+function showSettingsTab(e) {
+  console.log("=== SHOW SETTINGS TAB ===");
+  
+  try {
+    var card = buildSettingsTab(e, false);
+    
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().updateCard(card))
+      .build();
+      
+  } catch (error) {
+    console.error("Error in showSettingsTab:", error);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("Error: " + error.message))
+      .build();
+  }
+}
+
   // ===== SETTINGS FUNCTIONS =====
   
   function buildSettingsCard(isFirstTime) {
@@ -1733,118 +2195,12 @@ function buildAddOn(e) {
     }
   }
   
+  /**
+   * @deprecated Use showSettingsTab instead. Kept for backward compatibility.
+   */
   function showSettings(e) {
-    console.log("=== SHOW SETTINGS ===");
-    
-    try {
-      // Build a simplified settings card with single section
-      var card = CardService.newCardBuilder();
-      
-      // Get current settings
-      var settings = getUserSettings();
-      
-      // Single section with everything
-      var mainSection = CardService.newCardSection()
-        .setHeader("⚙️ Jira Settings");
-      
-      // Jira URL input with current value
-      var jiraUrlInput = CardService.newTextInput()
-        .setFieldName("jiraUrl")
-        .setTitle("Jira URL")
-        .setHint("e.g., https://your-company.atlassian.net")
-        .setValue(settings.jiraUrl || getDefaultJiraURL());
-      mainSection.addWidget(jiraUrlInput);
-      
-      // Jira Token input with masked value for security
-      var maskedToken = "";
-      if (settings.jiraToken) {
-        // Show only first 4 and last 4 characters with asterisks in between
-        if (settings.jiraToken.length > 8) {
-          maskedToken = settings.jiraToken.substring(0, 4) + "****" + settings.jiraToken.substring(settings.jiraToken.length - 4);
-        } else {
-          maskedToken = "****" + settings.jiraToken.substring(settings.jiraToken.length - 2);
-        }
-      }
-      
-      var jiraTokenInput = CardService.newTextInput()
-        .setFieldName("jiraToken")
-        .setTitle("Jira API Token")
-        .setHint("Leave blank to keep current token, or enter new token")
-        .setValue(maskedToken);
-      mainSection.addWidget(jiraTokenInput);
-      
-      // Instructions
-      var tokenHelp = CardService.newTextParagraph()
-        .setText("📖 How to get API token:\n1. Go to Jira → Profile → Manage Account → Security\n2. Create API token\n3. Copy the generated token (NOT your password)\n\n🔒 Security: Current token is masked for security. Leave unchanged to keep current token.");
-      mainSection.addWidget(tokenHelp);
-      
-      // JQL input as regular text input
-      var jqlInput = CardService.newTextInput()
-        .setFieldName("customJql")
-        .setTitle("Custom JQL Query")
-        .setHint("Optional: Custom JQL to filter your tickets")
-        .setValue(settings.customJql || getDefaultJQL());
-      mainSection.addWidget(jqlInput);
-      
-      // JQL help
-      var jqlHelp = CardService.newTextParagraph()
-        .setText("💡 JQL Examples:\n• assignee = currentUser()\n• project = MYPROJECT AND status = 'In Progress'\n• 'Technical Project Manager' in (currentUser())");
-      mainSection.addWidget(jqlHelp);
-      
-      
-      // Save button
-      var saveButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("💾 Save Settings")
-          .setOnClickAction(CardService.newAction().setFunctionName("saveSettings")));
-      mainSection.addWidget(saveButtonSet);
-      
-      // Test buttons
-      var testButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("🧪 Test Jira Connection")
-          .setOnClickAction(CardService.newAction().setFunctionName("testJiraConnection")));
-      mainSection.addWidget(testButtonSet);
-      
-      // Folder Lookup Test button
-      var folderTestButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("📁 Test Folder Lookup")
-          .setOnClickAction(CardService.newAction().setFunctionName("testFolderLookup")));
-      mainSection.addWidget(folderTestButtonSet);
-      
-      // Back button
-      var backButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("← Back to Main")
-          .setOnClickAction(CardService.newAction().setFunctionName("backToMain")));
-      mainSection.addWidget(backButtonSet);
-      
-      card.addSection(mainSection);
-      
-      var builtCard = card.build();
-      console.log("Settings card built successfully");
-      
-      // Try with updateCard instead of pushCard
-      var navigation = CardService.newNavigation().updateCard(builtCard);
-      console.log("Navigation created successfully");
-      
-      var response = CardService.newActionResponseBuilder()
-        .setNavigation(navigation)
-        .build();
-      
-      console.log("Action response built successfully");
-      return response;
-      
-    } catch (error) {
-      console.error("Error in showSettings:", error);
-      
-      // Return a simple notification instead of navigation
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification()
-          .setText("Error opening settings: " + error.message))
-        .build();
-    }
+    console.log("=== SHOW SETTINGS (deprecated - redirecting to showSettingsTab) ===");
+    return showSettingsTab(e);
   }
   
   function saveSettings(e) {
@@ -2059,23 +2415,9 @@ function buildAddOn(e) {
   }
   
   function backToMain(e) {
-    console.log("=== BACK TO MAIN ===");
-    
-    try {
-      var cards = buildAddOn(e);
-      
-      return CardService.newActionResponseBuilder()
-        .setNavigation(CardService.newNavigation().updateCard(cards[0]))
-        .build();
-        
-    } catch (error) {
-      console.error("Error in backToMain:", error);
-      
-      // Fallback: just pop the current card
-      return CardService.newActionResponseBuilder()
-        .setNavigation(CardService.newNavigation().popCard())
-        .build();
-    }
+    console.log("=== BACK TO MAIN (redirecting to showAttachmentTab) ===");
+    // Redirect to the new tab-based navigation
+    return showAttachmentTab(e);
   }
   
   // ===== DYNAMIC TICKET DETAILS FUNCTION =====
@@ -2150,19 +2492,10 @@ function buildAddOn(e) {
       console.log("Building card...");
       var card = CardService.newCardBuilder();
       
-      // Compact header with just settings button
-      console.log("Creating header section...");
-      var headerSection = CardService.newCardSection();
-      
-      // Compact settings button (gear only)
-      var settingsButtonSet = CardService.newButtonSet()
-        .addButton(CardService.newTextButton()
-          .setText("⚙️")
-          .setOnClickAction(CardService.newAction().setFunctionName("showSettings")));
-      headerSection.addWidget(settingsButtonSet);
-      
-      card.addSection(headerSection);
-      console.log("Header section added");
+      // Add tab header for consistent navigation
+      console.log("Creating tab header...");
+      card.addSection(createTabHeader('attachment', e));
+      console.log("Tab header added");
       
       // Main section with dropdown
       console.log("Creating main section...");
@@ -4530,8 +4863,17 @@ function logMeetingTranscriptToBigQuery(data) {
       return { success: false, error: 'authentication_failed' };
     }
     
-    // Use service account email as the user_email for audit trail
-    var serviceAccountEmail = getServiceAccountEmail();
+    // Get the actual user's email who triggered the save action
+    var userEmail;
+    try {
+      userEmail = Session.getActiveUser().getEmail();
+      if (!userEmail) {
+        userEmail = 'unknown_user';
+      }
+    } catch (e) {
+      console.log("⚠️ Could not get user email for BigQuery logging:", e.message);
+      userEmail = 'unknown_user';
+    }
     
     // Generate unique event ID
     var eventId = Utilities.getUuid();
@@ -4540,7 +4882,7 @@ function logMeetingTranscriptToBigQuery(data) {
     var rowData = {
       event_id: eventId,
       timestamp: new Date().toISOString(),
-      user_email: serviceAccountEmail,
+      user_email: userEmail,
       jira_ticket: data.jiraTicket || '',
       meeting_name: data.meetingName || '',
       gdrive_folder_id: data.folderId || '',
@@ -5027,5 +5369,288 @@ function saveAttachmentWithAdvancedDrive(attachment, folderId, fileName) {
       success: false,
       error: error.message
     };
+  }
+}
+
+// ===== EMAIL TO GOOGLE DOC FUNCTIONS =====
+
+/**
+ * Create a Google Doc from an email message and save it to the target folder
+ * @param {GmailMessage} message - The Gmail message to convert
+ * @param {Folder} targetFolder - The folder to save the Google Doc to
+ * @returns {Object} Result object with file info or error
+ */
+function createEmailGoogleDoc(message, targetFolder) {
+  try {
+    console.log("=== CREATE EMAIL GOOGLE DOC ===");
+    
+    // Extract email metadata
+    var subject = message.getSubject() || "(No Subject)";
+    var from = message.getFrom() || "";
+    var to = message.getTo() || "";
+    var cc = message.getCc() || "";
+    var date = message.getDate();
+    var body = message.getPlainBody() || "";
+    
+    console.log("Email subject:", subject);
+    console.log("Email from:", from);
+    console.log("Email date:", date);
+    
+    // Format the date for filename (YYYY-MM-DD)
+    var dateStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    var timeStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd 'at' HH:mm");
+    
+    // Create filename: Date_Subject
+    var fileName = dateStr + "_" + sanitizeFileName(subject);
+    console.log("Document filename:", fileName);
+    
+    // Create a new Google Doc
+    var doc = DocumentApp.create(fileName);
+    var docBody = doc.getBody();
+    
+    // Style configuration
+    var headerStyle = {};
+    headerStyle[DocumentApp.Attribute.FONT_SIZE] = 16;
+    headerStyle[DocumentApp.Attribute.BOLD] = true;
+    
+    var metadataStyle = {};
+    metadataStyle[DocumentApp.Attribute.FONT_SIZE] = 10;
+    metadataStyle[DocumentApp.Attribute.FONT_FAMILY] = "Roboto Mono";
+    
+    var bodyStyle = {};
+    bodyStyle[DocumentApp.Attribute.FONT_SIZE] = 11;
+    bodyStyle[DocumentApp.Attribute.FONT_FAMILY] = "Roboto";
+    
+    // Add header
+    var header = docBody.appendParagraph("EMAIL ARCHIVE");
+    header.setAttributes(headerStyle);
+    
+    // Add separator line
+    docBody.appendParagraph("─".repeat(50)).setAttributes(metadataStyle);
+    
+    // Add metadata fields
+    docBody.appendParagraph("From:    " + from).setAttributes(metadataStyle);
+    docBody.appendParagraph("To:      " + to).setAttributes(metadataStyle);
+    if (cc) {
+      docBody.appendParagraph("CC:      " + cc).setAttributes(metadataStyle);
+    }
+    docBody.appendParagraph("Date:    " + timeStr).setAttributes(metadataStyle);
+    docBody.appendParagraph("Subject: " + subject).setAttributes(metadataStyle);
+    
+    // Add separator line
+    docBody.appendParagraph("─".repeat(50)).setAttributes(metadataStyle);
+    docBody.appendParagraph(""); // Empty line
+    
+    // Add email body
+    var bodyParagraph = docBody.appendParagraph(body);
+    bodyParagraph.setAttributes(bodyStyle);
+    
+    // Save and close the document
+    doc.saveAndClose();
+    
+    // Move the document to target folder
+    var file = DriveApp.getFileById(doc.getId());
+    file.moveTo(targetFolder);
+    
+    console.log("✅ Email saved as Google Doc:");
+    console.log("   Name:", file.getName());
+    console.log("   ID:", file.getId());
+    console.log("   URL:", file.getUrl());
+    
+    return {
+      success: true,
+      file: file,
+      fileId: file.getId(),
+      fileName: file.getName(),
+      fileUrl: file.getUrl()
+    };
+    
+  } catch (error) {
+    console.error("❌ Failed to create email Google Doc:", error.message);
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Save the current email as a Google Doc to the project's 03_Correspondence folder
+ * This is the main action handler triggered by the "Save Email" button in the Mails tab
+ * @param {Object} e - Event object from Gmail add-on
+ * @returns {CardService.ActionResponse} Action response with notification
+ */
+function saveEmailAsGoogleDoc(e) {
+  try {
+    console.log("=== SAVE EMAIL AS GOOGLE DOC ===");
+    console.log("Save operation timestamp:", new Date().toISOString());
+    console.log("Form input:", JSON.stringify(e.formInput));
+    console.log("Parameters:", JSON.stringify(e.parameters));
+    
+    // Get ticket selection from form
+    var selectedTicket = e.formInput.selectedTicket;
+    var manualTicketNumber = e.formInput.manualTicketNumber;
+    var fullTicket = e.formInput.jiraTicket;
+    var threadId = e.parameters ? e.parameters.threadId : "";
+    var messageId = e.parameters ? e.parameters.messageId : "";
+    
+    // Determine final ticket (same logic as attachment save)
+    var finalTicket;
+    if (selectedTicket && selectedTicket !== "manual") {
+      finalTicket = selectedTicket;
+      console.log("Using selected ticket:", finalTicket);
+    } else if (manualTicketNumber) {
+      finalTicket = "CXPRODELIVERY-" + manualTicketNumber;
+      console.log("Using manual ticket:", finalTicket);
+    } else if (fullTicket) {
+      finalTicket = fullTicket;
+      console.log("Using full ticket:", finalTicket);
+    } else {
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText("❌ Please select a ticket or enter a manual ticket number"))
+        .build();
+    }
+    
+    // Validate Gmail context
+    if (!threadId) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText("❌ Please open an email to save"))
+        .build();
+    }
+    
+    // Get the email message
+    console.log("Loading email from thread:", threadId);
+    var thread = GmailApp.getThreadById(threadId);
+    var messages = thread.getMessages();
+    var message = null;
+    
+    // Find the specific message if messageId is provided
+    if (messageId) {
+      for (var i = 0; i < messages.length; i++) {
+        if (messages[i].getId() === messageId) {
+          message = messages[i];
+          console.log("Found specific message at index", i);
+          break;
+        }
+      }
+    }
+    
+    // Fallback to last message in thread
+    if (!message) {
+      message = messages[messages.length - 1];
+      console.log("Using last message in thread");
+    }
+    
+    console.log("Email subject:", message.getSubject());
+    
+    // Get project folder via Jira workflow
+    console.log("\n🔍 Finding project folder for " + finalTicket + "...");
+    var cachedSettings = getUserSettings();
+    var folderWorkflowResult = completeJiraToFolderWorkflowWithCreate(finalTicket, true, cachedSettings);
+    
+    if (!folderWorkflowResult.success) {
+      console.error("❌ Failed to get project folder:", folderWorkflowResult.error);
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText("❌ Cannot find project folder: " + (folderWorkflowResult.error || "Unknown error")))
+        .build();
+    }
+    
+    var projectFolderId = folderWorkflowResult.projectFolder.id;
+    console.log("✅ Project folder found:", folderWorkflowResult.projectFolder.name);
+    
+    // Get or create 03_Correspondence subfolder (using same logic as attachment save)
+    var selectedSubfolder = "03_Correspondence";
+    console.log("\n📁 Accessing " + selectedSubfolder + " subfolder...");
+    var projectFolder = DriveApp.getFolderById(projectFolderId);
+    
+    // Validate subfolder selection (same as attachment save)
+    var validation = validateSubfolderSelection(selectedSubfolder);
+    if (!validation.valid) {
+      selectedSubfolder = validation.sanitized;
+    }
+    
+    // Get or create target subfolder
+    var targetFolderResult = getOrCreateProjectSubfolder(projectFolder, selectedSubfolder);
+    console.log("📂 Subfolder: " + (targetFolderResult.success ? targetFolderResult.path : "ERROR"));
+    
+    if (!targetFolderResult.success) {
+      // Attempt fallback strategy (same as attachment save)
+      var fallbackResult = handleSubfolderCreationFailure(projectFolder, selectedSubfolder, targetFolderResult);
+      
+      if (!fallbackResult.success) {
+        var subfolderError = getSubfolderCreationErrorMessage(targetFolderResult.error, projectFolder, selectedSubfolder);
+        return CardService.newActionResponseBuilder()
+          .setNotification(CardService.newNotification().setText(subfolderError))
+          .build();
+      }
+      
+      console.log("⚠️ Using fallback: " + fallbackResult.actualPath);
+      targetFolderResult = fallbackResult;
+    }
+    
+    var correspondenceFolder = targetFolderResult.folder;
+    var actualFolderPath = targetFolderResult.path;
+    console.log("✅ Correspondence folder ready:", correspondenceFolder.getName());
+    
+    // Create the Google Doc from the email
+    console.log("\n📝 Creating Google Doc from email...");
+    var docResult = createEmailGoogleDoc(message, correspondenceFolder);
+    
+    if (!docResult.success) {
+      console.error("❌ Failed to create Google Doc:", docResult.error);
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification()
+          .setText("❌ Failed to save email: " + docResult.error))
+        .build();
+    }
+    
+    console.log("\n✅ EMAIL SAVED SUCCESSFULLY!");
+    console.log("   File:", docResult.fileName);
+    console.log("   Folder:", correspondenceFolder.getName());
+    console.log("   URL:", docResult.fileUrl);
+    
+    // Enhanced notification message with detailed folder info (same format as attachment save)
+    var notificationText = "✅ Email Save Complete!\n\n";
+    
+    // Project folder information
+    notificationText += "📁 Project folder: " + folderWorkflowResult.projectFolder.name + "\n";
+    
+    // Subfolder information
+    if (actualFolderPath && actualFolderPath !== "Project Root") {
+      notificationText += "📂 Subfolder: " + actualFolderPath + "\n";
+      if (targetFolderResult.created) {
+        notificationText += "🆕 Created new subfolder(s): " + targetFolderResult.createdFolders.join(", ") + "\n";
+      }
+      if (targetFolderResult.fallbackUsed) {
+        notificationText += "⚠️ Fallback: " + targetFolderResult.warning + "\n";
+      }
+    } else {
+      notificationText += "📂 Location: Project Root\n";
+    }
+    
+    // File information
+    notificationText += "📄 Saved file: " + docResult.fileName + "\n";
+    
+    // Project information
+    notificationText += "🎫 Project: " + finalTicket + "\n";
+    
+    // Return success notification
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText(notificationText))
+      .build();
+    
+  } catch (error) {
+    console.error("❌ Save email failed:", error.message);
+    console.error("Stack:", error.stack);
+    
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText("❌ Error saving email: " + error.message))
+      .build();
   }
 }
